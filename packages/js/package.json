@@ -1,0 +1,42 @@
+{
+  "name": "@nuggetslife/langchain",
+  "version": "0.1.0",
+  "description": "Nuggets identity verification toolkit for LangChain.js",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsup --config tsup.config.ts --watch",
+    "build": "tsup --config tsup.config.ts",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=0.3.0"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@langchain/core": "^0.3.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0",
+    "vite-tsconfig-paths": "^5.1.0"
+  },
+  "keywords": ["langchain", "nuggets", "identity", "kyc", "verification", "ai", "tools"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NuggetsLtd/langchain-nuggets.git",
+    "directory": "packages/js"
+  }
+}
