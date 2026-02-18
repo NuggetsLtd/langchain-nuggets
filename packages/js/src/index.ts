@@ -1,5 +1,8 @@
 export { NuggetsToolkit } from "./toolkit.js";
-export { NuggetsApiClient } from "./client/nuggets-api-client.js";
+export {
+  NuggetsApiClient,
+  NuggetsApiClientError,
+} from "./client/nuggets-api-client.js";
 export { NuggetsBaseTool } from "./tools/base.js";
 export type { NuggetsBaseToolParams } from "./tools/base.js";
 

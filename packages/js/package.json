@@ -10,6 +10,8 @@
       "require": "./dist/index.cjs"
     }
   },
+  "main": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
   "files": ["dist"],
   "scripts": {
     "dev": "tsup --config tsup.config.ts --watch",

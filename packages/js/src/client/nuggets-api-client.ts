@@ -66,12 +66,30 @@ export class NuggetsApiClient {
     }
 
     const response = await fetch(`${this.config.apiUrl}${path}`, options);
-    const data = await response.json();
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      if (!response.ok) {
+        throw new NuggetsApiClientError(
+          `Request failed with status ${response.status}`,
+          "UNKNOWN",
+          response.status
+        );
+      }
+      throw new NuggetsApiClientError(
+        "Invalid JSON response",
+        "PARSE_ERROR",
+        response.status
+      );
+    }
 
     if (!response.ok) {
+      const err = data as Record<string, string>;
       throw new NuggetsApiClientError(
-        data.message || "Request failed",
-        data.code || "UNKNOWN",
+        err.message || "Request failed",
+        err.code || "UNKNOWN",
         response.status
       );
     }
