@@ -4,3 +4,14 @@ dist/
 *.tsbuildinfo
 .env
 .env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
