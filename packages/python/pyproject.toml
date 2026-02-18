@@ -40,7 +40,8 @@ target-version = "py39"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.9"

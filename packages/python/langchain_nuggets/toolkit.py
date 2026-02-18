@@ -7,22 +7,22 @@ from typing import List, Optional
 from langchain_core.tools import BaseTool
 
 from langchain_nuggets.client.nuggets_api_client import NuggetsApiClient
-from langchain_nuggets.tools.kyc import (
-    InitiateKycVerification,
-    CheckKycStatus,
-    VerifyAge,
-    VerifyCredential,
-)
-from langchain_nuggets.tools.kya import (
-    RegisterAgentIdentity,
-    VerifyAgentIdentity,
-    GetAgentTrustScore,
-)
 from langchain_nuggets.tools.auth import (
+    CheckAuthStatus,
+    InitiateOAuthFlow,
     RequestCredentialPresentation,
     VerifyPresentation,
-    InitiateOAuthFlow,
-    CheckAuthStatus,
+)
+from langchain_nuggets.tools.kya import (
+    GetAgentTrustScore,
+    RegisterAgentIdentity,
+    VerifyAgentIdentity,
+)
+from langchain_nuggets.tools.kyc import (
+    CheckKycStatus,
+    InitiateKycVerification,
+    VerifyAge,
+    VerifyCredential,
 )
 
 

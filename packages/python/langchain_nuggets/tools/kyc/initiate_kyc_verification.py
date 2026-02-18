@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional, Type
 
-from langchain_core.callbacks import CallbackManagerForToolRun, AsyncCallbackManagerForToolRun
+from langchain_core.callbacks import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from pydantic import BaseModel, Field
 
 from langchain_nuggets.tools.base import NuggetsBaseTool
