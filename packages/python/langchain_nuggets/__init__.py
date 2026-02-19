@@ -35,6 +35,16 @@ try:
 except ImportError:
     pass
 
+# Authority Middleware (optional — requires langchain-core)
+try:
+    from langchain_nuggets.middleware import (
+        MiddlewareConfig,
+        NuggetsAuthorityMiddleware,
+        ProofArtifact,
+    )
+except ImportError:
+    pass
+
 __all__ = [
     # Toolkit
     "NuggetsToolkit",
@@ -60,4 +70,8 @@ __all__ = [
     # LangGraph (optional)
     "NuggetsAuth",
     "NuggetsAuthError",
+    # Middleware (optional)
+    "NuggetsAuthorityMiddleware",
+    "MiddlewareConfig",
+    "ProofArtifact",
 ]
