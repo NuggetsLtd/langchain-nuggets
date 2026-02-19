@@ -29,6 +29,12 @@ from langchain_nuggets.tools.kyc import (
     VerifyCredential,
 )
 
+# LangGraph auth (optional — requires langgraph-sdk)
+try:
+    from langchain_nuggets.langgraph import NuggetsAuth, NuggetsAuthError
+except ImportError:
+    pass
+
 __all__ = [
     # Toolkit
     "NuggetsToolkit",
@@ -51,4 +57,7 @@ __all__ = [
     "VerifyPresentation",
     "InitiateOAuthFlow",
     "CheckAuthStatus",
+    # LangGraph (optional)
+    "NuggetsAuth",
+    "NuggetsAuthError",
 ]
