@@ -66,14 +66,23 @@ class NuggetsAuthorityMiddleware:
         tool_args: Dict[str, Any],
     ) -> AuthorityEvaluationRequest:
         """Construct the authority evaluation request payload."""
+        # Resolve intent via callback if configured
+        intent = None
+        if self._config.intent_resolver is not None:
+            intent = self._config.intent_resolver(tool_name, tool_args)
+
+        # Extract target from args if present, otherwise default to tool name
+        target = tool_args.get("target", tool_name) if isinstance(tool_args, dict) else tool_name
+
         return AuthorityEvaluationRequest(
             agent_id=self._config.agent_id,
             controller_id=self._config.controller_id,
             delegation_id=self._config.delegation_id,
             action=ActionContext(
                 tool=tool_name,
-                target=tool_name,
+                target=str(target),
                 parameters_hash=hash_parameters(tool_args),
+                intent=intent,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             ),
         )

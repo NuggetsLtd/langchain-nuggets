@@ -151,4 +151,4 @@ class TestCheckAuthStatus:
             assert parsed == mock_status
             assert parsed["authenticated"] is True
             assert parsed["kycVerified"] is True
-            mock_get.assert_called_once_with("/auth/status/user@example.com")
+            mock_get.assert_called_once_with("/auth/status/user%40example.com")

@@ -12,7 +12,7 @@ export class VerifyPresentation extends NuggetsBaseTool {
   schema = schema;
 
   async _call({ sessionId }: z.output<typeof schema>): Promise<string> {
-    const result = await this.client.get<PresentationResult>(`/credentials/presentations/${sessionId}`);
+    const result = await this.client.get<PresentationResult>(`/credentials/presentations/${encodeURIComponent(sessionId)}`);
     return JSON.stringify(result);
   }
 }

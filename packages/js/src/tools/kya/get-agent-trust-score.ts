@@ -12,7 +12,7 @@ export class GetAgentTrustScore extends NuggetsBaseTool {
   schema = schema;
 
   async _call({ agentId }: z.output<typeof schema>): Promise<string> {
-    const score = await this.client.get<AgentTrustScore>(`/kya/agents/${agentId}/trust-score`);
+    const score = await this.client.get<AgentTrustScore>(`/kya/agents/${encodeURIComponent(agentId)}/trust-score`);
     return JSON.stringify(score);
   }
 }

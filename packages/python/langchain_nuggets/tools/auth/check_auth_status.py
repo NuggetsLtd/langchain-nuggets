@@ -1,5 +1,6 @@
 """Check auth status tool."""
 from __future__ import annotations
+from urllib.parse import quote
 
 import json
 from typing import Optional, Type
@@ -20,9 +21,9 @@ class CheckAuthStatus(NuggetsBaseTool):
     args_schema: Type[BaseModel] = CheckAuthStatusInput
 
     def _run(self, userId: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        result = self.client.get(f"/auth/status/{userId}")
+        result = self.client.get(f"/auth/status/{quote(userId, safe="")}")
         return json.dumps(result)
 
     async def _arun(self, userId: str, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
-        result = await self.client.aget(f"/auth/status/{userId}")
+        result = await self.client.aget(f"/auth/status/{quote(userId, safe="")}")
         return json.dumps(result)

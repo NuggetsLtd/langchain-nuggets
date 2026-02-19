@@ -1,7 +1,7 @@
 """Type definitions for the Nuggets Authority Middleware."""
 from __future__ import annotations
 
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Dict, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -16,7 +16,8 @@ class MiddlewareConfig(BaseModel):
     controller_id: str
     delegation_id: str
     authority_endpoint: str = "/authority/evaluate"
-    on_proof: Optional[Any] = None  # Callable[[ProofArtifact], None]
+    on_proof: Optional[Callable[["ProofArtifact"], None]] = None
+    intent_resolver: Optional[Callable[[str, Dict[str, Any]], Optional[str]]] = None
 
     model_config = {"arbitrary_types_allowed": True}
 

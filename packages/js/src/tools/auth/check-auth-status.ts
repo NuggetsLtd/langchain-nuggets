@@ -12,7 +12,7 @@ export class CheckAuthStatus extends NuggetsBaseTool {
   schema = schema;
 
   async _call({ userId }: z.output<typeof schema>): Promise<string> {
-    const status = await this.client.get<AuthStatus>(`/auth/status/${userId}`);
+    const status = await this.client.get<AuthStatus>(`/auth/status/${encodeURIComponent(userId)}`);
     return JSON.stringify(status);
   }
 }

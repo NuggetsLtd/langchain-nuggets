@@ -33,8 +33,32 @@ class NuggetsApiClient:
             self._sync_client = httpx.Client()
         return self._sync_client
 
+    def close(self) -> None:
+        """Close the sync HTTP client and release resources."""
+        if self._sync_client is not None:
+            self._sync_client.close()
+            self._sync_client = None
+
+    async def aclose(self) -> None:
+        """Close the async HTTP client and release resources."""
+        if self._async_client is not None:
+            await self._async_client.aclose()
+            self._async_client = None
+
+    def __enter__(self) -> "NuggetsApiClient":
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
+
+    async def __aenter__(self) -> "NuggetsApiClient":
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self.aclose()
+
     def _authenticate_sync(self) -> str:
-        if self._token and self._token["expires_at"] > time.time() * 1000:
+        if self._token and self._token["expires_at"] > time.time():
             return self._token["access_token"]
         client = self._get_sync_client()
         response = client.post(
@@ -48,7 +72,7 @@ class NuggetsApiClient:
         data = response.json()
         self._token = {
             "access_token": data["token"],
-            "expires_at": time.time() * 1000 + data["expiresIn"] * 1000,
+            "expires_at": time.time() + data["expiresIn"],
         }
         return self._token["access_token"]
 
@@ -99,7 +123,7 @@ class NuggetsApiClient:
         return self._async_client
 
     async def _authenticate_async(self) -> str:
-        if self._token and self._token["expires_at"] > time.time() * 1000:
+        if self._token and self._token["expires_at"] > time.time():
             return self._token["access_token"]
         client = await self._get_async_client()
         response = await client.post(
@@ -113,7 +137,7 @@ class NuggetsApiClient:
         data = response.json()
         self._token = {
             "access_token": data["token"],
-            "expires_at": time.time() * 1000 + data["expiresIn"] * 1000,
+            "expires_at": time.time() + data["expiresIn"],
         }
         return self._token["access_token"]
 

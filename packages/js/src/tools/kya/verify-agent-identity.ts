@@ -12,7 +12,7 @@ export class VerifyAgentIdentity extends NuggetsBaseTool {
   schema = schema;
 
   async _call({ agentId }: z.output<typeof schema>): Promise<string> {
-    const identity = await this.client.get<AgentIdentity>(`/kya/agents/${agentId}`);
+    const identity = await this.client.get<AgentIdentity>(`/kya/agents/${encodeURIComponent(agentId)}`);
     return JSON.stringify(identity);
   }
 }

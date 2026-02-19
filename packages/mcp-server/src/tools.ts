@@ -2,6 +2,22 @@ import { z } from "zod";
 import type { NuggetsApiClient } from "@nuggetslife/langchain";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
+
+function wrapHandler<T>(fn: (args: T) => Promise<ToolResult>): (args: T) => Promise<ToolResult> {
+  return async (args: T) => {
+    try {
+      return await fn(args);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ error: true, message }) }],
+        isError: true,
+      };
+    }
+  };
+}
+
 export function registerTools(server: McpServer, client: NuggetsApiClient): void {
   // --- KYC Tools ---
 
@@ -18,10 +34,10 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
           ),
       },
     },
-    async ({ userId }) => {
+    wrapHandler(async ({ userId }) => {
       const result = await client.post("/kyc/sessions", { userId });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   server.registerTool(
@@ -35,10 +51,10 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
           .describe("The KYC session ID returned by initiate_kyc_verification"),
       },
     },
-    async ({ sessionId }) => {
-      const result = await client.get(`/kyc/sessions/${sessionId}`);
+    wrapHandler(async ({ sessionId }) => {
+      const result = await client.get(`/kyc/sessions/${encodeURIComponent(sessionId)}`);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   server.registerTool(
@@ -53,10 +69,10 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
           .describe("The minimum age to verify (e.g. 18 for age-restricted content)"),
       },
     },
-    async ({ userId, minimumAge }) => {
+    wrapHandler(async ({ userId, minimumAge }) => {
       const result = await client.post("/kyc/verify-age", { userId, minimumAge });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   server.registerTool(
@@ -73,10 +89,10 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
           ),
       },
     },
-    async ({ userId, credentialType }) => {
+    wrapHandler(async ({ userId, credentialType }) => {
       const result = await client.post("/kyc/verify-credential", { userId, credentialType });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   // --- KYA Tools ---
@@ -98,10 +114,10 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
           .describe("Twitter/X handle for social verification"),
       },
     },
-    async (input) => {
+    wrapHandler(async (input) => {
       const result = await client.post("/kya/agents", input);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   server.registerTool(
@@ -113,10 +129,10 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
         agentId: z.string().describe("The agent ID or DID of the agent to verify"),
       },
     },
-    async ({ agentId }) => {
-      const result = await client.get(`/kya/agents/${agentId}`);
+    wrapHandler(async ({ agentId }) => {
+      const result = await client.get(`/kya/agents/${encodeURIComponent(agentId)}`);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   server.registerTool(
@@ -128,10 +144,10 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
         agentId: z.string().describe("The agent ID or DID to get the trust score for"),
       },
     },
-    async ({ agentId }) => {
-      const result = await client.get(`/kya/agents/${agentId}/trust-score`);
+    wrapHandler(async ({ agentId }) => {
+      const result = await client.get(`/kya/agents/${encodeURIComponent(agentId)}/trust-score`);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   // --- Auth Tools ---
@@ -150,10 +166,10 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
           ),
       },
     },
-    async (input) => {
+    wrapHandler(async (input) => {
       const result = await client.post("/credentials/presentations", input);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   server.registerTool(
@@ -169,10 +185,10 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
           ),
       },
     },
-    async ({ sessionId }) => {
-      const result = await client.get(`/credentials/presentations/${sessionId}`);
+    wrapHandler(async ({ sessionId }) => {
+      const result = await client.get(`/credentials/presentations/${encodeURIComponent(sessionId)}`);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   server.registerTool(
@@ -192,13 +208,13 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
           ),
       },
     },
-    async ({ redirectUri, scopes }) => {
+    wrapHandler(async ({ redirectUri, scopes }) => {
       const result = await client.post("/oauth/authorize", {
         redirectUri,
         scopes: scopes ?? ["openid"],
       });
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 
   server.registerTool(
@@ -212,9 +228,9 @@ export function registerTools(server: McpServer, client: NuggetsApiClient): void
           .describe("The user's identifier to check authentication status for"),
       },
     },
-    async ({ userId }) => {
-      const result = await client.get(`/auth/status/${userId}`);
+    wrapHandler(async ({ userId }) => {
+      const result = await client.get(`/auth/status/${encodeURIComponent(userId)}`);
       return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
-    },
+    }),
   );
 }

@@ -186,7 +186,7 @@ describe("Auth Tools", () => {
       expect(parsed).toEqual(mockStatus);
       expect(parsed.authenticated).toBe(true);
       expect(parsed.kycVerified).toBe(true);
-      expect(client.get).toHaveBeenCalledWith("/auth/status/user@example.com");
+      expect(client.get).toHaveBeenCalledWith("/auth/status/user%40example.com");
     });
   });
 });

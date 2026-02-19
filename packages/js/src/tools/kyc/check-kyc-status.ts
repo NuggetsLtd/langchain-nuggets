@@ -12,7 +12,7 @@ export class CheckKycStatus extends NuggetsBaseTool {
   schema = schema;
 
   async _call({ sessionId }: z.output<typeof schema>): Promise<string> {
-    const result = await this.client.get<KycResult>(`/kyc/sessions/${sessionId}`);
+    const result = await this.client.get<KycResult>(`/kyc/sessions/${encodeURIComponent(sessionId)}`);
     return JSON.stringify(result);
   }
 }

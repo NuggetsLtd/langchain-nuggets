@@ -46,6 +46,20 @@ class NuggetsTokenVerifier:
         self._jwks_keys: Optional[List[Dict[str, Any]]] = None
         self._jwks_fetched_at: float = 0
 
+        # Reusable HTTP client
+        self._http_client: Optional[httpx.AsyncClient] = None
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient()
+        return self._http_client
+
+    async def aclose(self) -> None:
+        """Close the HTTP client and release resources."""
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+
     async def verify_token(self, token: str) -> Dict[str, Any]:
         """Verify an OIDC token and return its claims.
 
@@ -125,8 +139,8 @@ class NuggetsTokenVerifier:
         if not jwks_uri:
             raise NuggetsAuthError("OIDC provider does not expose a jwks_uri", 500)
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(jwks_uri)
+        client = self._get_http_client()
+        response = await client.get(jwks_uri)
 
         if response.status_code >= 400:
             raise NuggetsAuthError(f"JWKS fetch failed: {response.status_code}", 500)
@@ -143,11 +157,11 @@ class NuggetsTokenVerifier:
         if not userinfo_endpoint:
             raise NuggetsAuthError("OIDC provider does not expose a userinfo endpoint", 401)
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                userinfo_endpoint,
-                headers={"Authorization": f"Bearer {token}"},
-            )
+        client = self._get_http_client()
+        response = await client.get(
+            userinfo_endpoint,
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
         if response.status_code == 401:
             raise NuggetsAuthError("Invalid or expired token", 401)
@@ -170,8 +184,8 @@ class NuggetsTokenVerifier:
             return self._discovery
 
         url = f"{self._issuer_url}/.well-known/openid-configuration"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
+        client = self._get_http_client()
+        response = await client.get(url)
 
         if response.status_code >= 400:
             raise NuggetsAuthError(

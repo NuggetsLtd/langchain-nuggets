@@ -1,5 +1,6 @@
 """Verify agent identity tool."""
 from __future__ import annotations
+from urllib.parse import quote
 
 import json
 from typing import Optional, Type
@@ -20,9 +21,9 @@ class VerifyAgentIdentity(NuggetsBaseTool):
     args_schema: Type[BaseModel] = VerifyAgentIdentityInput
 
     def _run(self, agentId: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        result = self.client.get(f"/kya/agents/{agentId}")
+        result = self.client.get(f"/kya/agents/{quote(agentId, safe="")}")
         return json.dumps(result)
 
     async def _arun(self, agentId: str, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
-        result = await self.client.aget(f"/kya/agents/{agentId}")
+        result = await self.client.aget(f"/kya/agents/{quote(agentId, safe="")}")
         return json.dumps(result)
