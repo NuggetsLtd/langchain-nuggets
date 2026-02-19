@@ -9,6 +9,7 @@ Nuggets identity verification for LangChain — KYC, KYA, selective disclosure, 
 | **Native Toolkit** | [`@nuggetslife/langchain`](./packages/js) (npm) / [`langchain-nuggets`](./packages/python) (PyPI) | Optimized DX with full type safety | TypeScript, Python |
 | **MCP Server** | [`@nuggetslife/mcp-server`](./packages/mcp-server) | Works with any MCP client (Claude Desktop, Cursor, etc.) | Any |
 | **LangGraph Auth** | [`langchain-nuggets[langgraph]`](./packages/python/langchain_nuggets/langgraph) | Nuggets OIDC as auth backend for deployed agents | Python |
+| **Authority Middleware** | [`langchain-nuggets`](./packages/python/langchain_nuggets/middleware) | Pre-execution trust enforcement for every tool call | Python |
 
 ## Quick Start
 
@@ -83,6 +84,38 @@ auth = nuggets.auth  # Pass to langgraph.json
 
 See the [full example deployment](./examples/python/langgraph_auth_agent/).
 
+### Authority Middleware
+
+Intercept every tool call with Nuggets trust enforcement — validates authority, enforces policy, and emits cryptographic proof artifacts.
+
+```python
+from langchain_nuggets.middleware import NuggetsAuthorityMiddleware, MiddlewareConfig
+from langgraph.prebuilt import ToolNode
+
+config = MiddlewareConfig(
+    api_url="https://api.nuggets.life",
+    partner_id="your-partner-id",
+    partner_secret="your-secret",
+    agent_id="agent-001",
+    controller_id="org-001",
+    delegation_id="del-001",
+)
+
+middleware = NuggetsAuthorityMiddleware(config)
+
+# Every tool call goes through Nuggets authority check
+tool_node = ToolNode(
+    tools=your_tools,
+    wrap_tool_call=middleware.wrap_tool_call,
+)
+
+# After execution, inspect proof artifacts
+for proof in middleware.proofs:
+    print(f"{proof.proof_id}: {proof.tool} ({proof.latency_ms:.0f}ms)")
+```
+
+See the [demo script](./examples/python/authority_middleware_demo.py).
+
 ## Tools
 
 ### KYC (Know Your Customer)
@@ -119,6 +152,7 @@ See the [full example deployment](./examples/python/langgraph_auth_agent/).
 | Multi-Agent Trust | [link](./examples/js/multi-agent-trust.ts) | [link](./examples/python/multi_agent_trust.py) | Register, verify, and score agent identities |
 | Selective Disclosure | [link](./examples/js/selective-disclosure.ts) | [link](./examples/python/selective_disclosure.py) | Age verification and credential presentation |
 | LangGraph Auth | — | [link](./examples/python/langgraph_auth_agent/) | Deployed agent with Nuggets OIDC auth |
+| Authority Middleware | — | [link](./examples/python/authority_middleware_demo.py) | Pre-execution trust enforcement with proof artifacts |
 
 ## Configuration
 

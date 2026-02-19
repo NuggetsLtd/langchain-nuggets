@@ -88,3 +88,48 @@ result = executor.invoke({"input": "Verify alice@example.com"})
 ## License
 
 MIT
+
+## Authority Middleware
+
+Intercept every LangChain/LangGraph tool call with pre-execution trust enforcement. The middleware validates authority against the Nuggets control plane, blocks unauthorized actions, and emits cryptographic proof artifacts.
+
+```python
+from langchain_nuggets.middleware import NuggetsAuthorityMiddleware, MiddlewareConfig
+from langgraph.prebuilt import ToolNode
+
+config = MiddlewareConfig(
+    api_url="https://api.nuggets.life",
+    partner_id="your-partner-id",
+    partner_secret="your-secret",
+    agent_id="agent-001",
+    controller_id="org-001",
+    delegation_id="del-001",
+)
+
+middleware = NuggetsAuthorityMiddleware(config)
+
+tool_node = ToolNode(
+    tools=your_tools,
+    wrap_tool_call=middleware.wrap_tool_call,   # sync
+    # awrap_tool_call=middleware.awrap_tool_call,  # async
+)
+```
+
+**Execution model:** `Agent → Tool Call → Nuggets Authority Check → Allow/Deny → Emit Proof`
+
+**Trust primitives enforced:** Actor Identity, Authority (delegation), Policy, Intent, Consent, Accountability (provenance).
+
+| Behaviour | Detail |
+|-----------|--------|
+| **ALLOW** | Tool executes, proof artifact emitted |
+| **DENY** | Tool blocked, structured error returned |
+| **ERROR** | Fail closed — tool not executed |
+
+Access proof artifacts after execution:
+
+```python
+for proof in middleware.proofs:
+    print(f"{proof.proof_id}: {proof.tool} latency={proof.latency_ms:.0f}ms")
+```
+
+See the [demo script](../../examples/python/authority_middleware_demo.py) for a complete working example.
