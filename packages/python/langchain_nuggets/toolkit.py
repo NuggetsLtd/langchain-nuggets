@@ -40,6 +40,8 @@ class NuggetsToolkit:
         api_url: Optional[str] = None,
         partner_id: Optional[str] = None,
         partner_secret: Optional[str] = None,
+        ca_cert: Optional[str] = None,
+        verify_ssl: bool = True,
     ) -> None:
         resolved_api_url = api_url or os.environ.get("NUGGETS_API_URL", "")
         resolved_partner_id = partner_id or os.environ.get("NUGGETS_PARTNER_ID", "")
@@ -56,6 +58,8 @@ class NuggetsToolkit:
             "api_url": resolved_api_url,
             "partner_id": resolved_partner_id,
             "partner_secret": resolved_partner_secret,
+            "ca_cert": ca_cert,
+            "verify_ssl": verify_ssl,
         })
 
     def get_tools(self) -> List[BaseTool]:

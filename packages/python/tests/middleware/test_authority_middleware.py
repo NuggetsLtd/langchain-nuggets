@@ -241,3 +241,18 @@ class TestAsyncWrapToolCall:
 
         assert len(middleware.proofs) == 1
         assert middleware.proofs[0].proof_id == "proof-xyz"
+
+
+class TestMiddlewareTls:
+    def test_threads_tls_to_client(self):
+        config = MiddlewareConfig(
+            api_url="https://api.test",
+            partner_id="p",
+            partner_secret="s",
+            agent_id="a",
+            controller_id="c",
+            delegation_id="d",
+            ca_cert="/path/ca.pem",
+        )
+        middleware = NuggetsAuthorityMiddleware(config)
+        assert middleware._client._verify == "/path/ca.pem"

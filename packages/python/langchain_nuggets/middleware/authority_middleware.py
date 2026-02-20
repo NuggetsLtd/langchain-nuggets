@@ -50,6 +50,8 @@ class NuggetsAuthorityMiddleware:
                 "api_url": config.api_url,
                 "partner_id": config.partner_id,
                 "partner_secret": config.partner_secret,
+                "ca_cert": config.ca_cert,
+                "verify_ssl": config.verify_ssl,
             }
         )
         self._proofs: List[ProofArtifact] = []

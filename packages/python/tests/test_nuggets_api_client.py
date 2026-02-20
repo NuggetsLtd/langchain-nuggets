@@ -84,3 +84,32 @@ class TestNuggetsApiClient:
             client.get("/missing")
         assert exc_info.value.code == "NOT_FOUND"
         assert str(exc_info.value) == "Not found"
+
+
+class TestNuggetsApiClientTls:
+    def test_default_verify_is_true(self):
+        client = NuggetsApiClient(TEST_CONFIG)
+        assert client._verify is True
+
+    def test_ca_cert_sets_verify_path(self):
+        config = {**TEST_CONFIG, "ca_cert": "/path/to/ca.pem"}
+        client = NuggetsApiClient(config)
+        assert client._verify == "/path/to/ca.pem"
+
+    def test_verify_ssl_false_disables_verification(self):
+        config = {**TEST_CONFIG, "verify_ssl": False}
+        client = NuggetsApiClient(config)
+        assert client._verify is False
+
+    def test_verify_ssl_false_takes_precedence_over_ca_cert(self):
+        config = {**TEST_CONFIG, "verify_ssl": False, "ca_cert": "/path/ca.pem"}
+        client = NuggetsApiClient(config)
+        assert client._verify is False
+
+    def test_sync_client_uses_verify(self):
+        config = {**TEST_CONFIG, "ca_cert": "/path/to/ca.pem"}
+        client = NuggetsApiClient(config)
+        with pytest.raises(Exception):
+            # The path doesn't exist, so httpx will raise when creating the client
+            # This verifies the verify param is actually passed through
+            client._get_sync_client()

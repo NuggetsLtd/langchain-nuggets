@@ -47,6 +47,8 @@ class NuggetsAuth:
         partner_secret: Optional[str] = None,
         audience: Optional[str] = None,
         require_kyc: bool = False,
+        ca_cert: Optional[str] = None,
+        verify_ssl: bool = True,
     ) -> None:
         resolved_issuer = issuer_url or os.environ.get("NUGGETS_OIDC_ISSUER_URL", "")
         if not resolved_issuer:
@@ -59,6 +61,8 @@ class NuggetsAuth:
         self._verifier = NuggetsTokenVerifier(
             issuer_url=resolved_issuer,
             audience=audience,
+            ca_cert=ca_cert,
+            verify_ssl=verify_ssl,
         )
 
         # Optional: NuggetsApiClient for KYC status enrichment
@@ -72,6 +76,8 @@ class NuggetsAuth:
                 "api_url": resolved_api_url,
                 "partner_id": resolved_partner_id,
                 "partner_secret": resolved_partner_secret,
+                "ca_cert": ca_cert,
+                "verify_ssl": verify_ssl,
             })
 
         # Create and configure the LangGraph Auth object

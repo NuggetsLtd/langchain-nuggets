@@ -1,3 +1,7 @@
+// Note: LangGraph auth (NuggetsAuth / NuggetsTokenVerifier) is Python-only.
+// The JS toolkit is a client-side tool layer. For LangGraph deployments,
+// use the Python langchain-nuggets[langgraph] package.
+
 export { NuggetsToolkit } from "./toolkit.js";
 export {
   NuggetsApiClient,

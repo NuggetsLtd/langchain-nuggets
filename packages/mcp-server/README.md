@@ -94,6 +94,30 @@ const server = createNuggetsMcpServer({
 | `/messages` | POST | MCP message handler |
 | `/health` | GET | Health check |
 
+
+## Self-Hosted Deployment
+
+Point the environment variables to your own Nuggets instance:
+
+```json
+{
+  "mcpServers": {
+    "nuggets": {
+      "command": "npx",
+      "args": ["@nuggetslife/mcp-server"],
+      "env": {
+        "NUGGETS_API_URL": "https://nuggets.internal.example.com/api",
+        "NUGGETS_PARTNER_ID": "your-partner-id",
+        "NUGGETS_PARTNER_SECRET": "your-secret",
+        "NODE_EXTRA_CA_CERTS": "/etc/ssl/private-ca/nuggets-ca.pem"
+      }
+    }
+  }
+}
+```
+
+Set `NODE_EXTRA_CA_CERTS` if your instance uses a private CA.
+
 ## License
 
 MIT

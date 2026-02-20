@@ -211,3 +211,21 @@ async def test_discovery_caches_endpoints():
 
     # Discovery fetched once, cached for second call
     assert discovery_route.call_count == 1
+
+
+class TestTokenVerifierTls:
+    def test_default_verify_is_true(self):
+        verifier = NuggetsTokenVerifier(issuer_url="https://oidc.test")
+        assert verifier._verify is True
+
+    def test_ca_cert_sets_verify_path(self):
+        verifier = NuggetsTokenVerifier(
+            issuer_url="https://oidc.test", ca_cert="/etc/ssl/ca.pem"
+        )
+        assert verifier._verify == "/etc/ssl/ca.pem"
+
+    def test_verify_ssl_false_disables_verification(self):
+        verifier = NuggetsTokenVerifier(
+            issuer_url="https://oidc.test", verify_ssl=False
+        )
+        assert verifier._verify is False

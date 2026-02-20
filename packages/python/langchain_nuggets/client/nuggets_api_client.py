@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import httpx
 
@@ -28,9 +28,19 @@ class NuggetsApiClient:
         self._sync_client: Optional[httpx.Client] = None
         self._async_client: Optional[httpx.AsyncClient] = None
 
+        # TLS configuration for self-hosted deployments
+        verify_ssl: bool = config.get("verify_ssl", True)
+        ca_cert: Optional[str] = config.get("ca_cert")
+        if not verify_ssl:
+            self._verify: Union[bool, str] = False
+        elif ca_cert is not None:
+            self._verify = ca_cert
+        else:
+            self._verify = True
+
     def _get_sync_client(self) -> httpx.Client:
         if self._sync_client is None:
-            self._sync_client = httpx.Client()
+            self._sync_client = httpx.Client(verify=self._verify)
         return self._sync_client
 
     def close(self) -> None:
@@ -119,7 +129,7 @@ class NuggetsApiClient:
     # --- Async methods ---
     async def _get_async_client(self) -> httpx.AsyncClient:
         if self._async_client is None:
-            self._async_client = httpx.AsyncClient()
+            self._async_client = httpx.AsyncClient(verify=self._verify)
         return self._async_client
 
     async def _authenticate_async(self) -> str:

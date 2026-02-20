@@ -51,3 +51,23 @@ class TestNuggetsToolkit:
         assert "verify_presentation" in names
         assert "initiate_oauth_flow" in names
         assert "check_auth_status" in names
+
+
+class TestNuggetsToolkitTls:
+    def test_passes_ca_cert_to_client(self):
+        toolkit = NuggetsToolkit(
+            api_url="https://api.test",
+            partner_id="pid",
+            partner_secret="psec",
+            ca_cert="/path/ca.pem",
+        )
+        assert toolkit._client._verify == "/path/ca.pem"
+
+    def test_passes_verify_ssl_false_to_client(self):
+        toolkit = NuggetsToolkit(
+            api_url="https://api.test",
+            partner_id="pid",
+            partner_secret="psec",
+            verify_ssl=False,
+        )
+        assert toolkit._client._verify is False

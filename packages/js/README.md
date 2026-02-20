@@ -98,6 +98,27 @@ const result = await executor.invoke({
 | `NUGGETS_PARTNER_ID` | Partner ID from Nuggets portal |
 | `NUGGETS_PARTNER_SECRET` | Partner secret key |
 
+
+## Self-Hosted Deployment
+
+Point the configuration to your own Nuggets instance:
+
+```typescript
+const toolkit = new NuggetsToolkit({
+  apiUrl: "https://nuggets.internal.example.com/api",
+  partnerId: "your-partner-id",
+  partnerSecret: "your-secret",
+});
+```
+
+### Custom CA Certificates
+
+For self-hosted instances using a private CA, use Node.js's built-in mechanism:
+
+```bash
+NODE_EXTRA_CA_CERTS=/etc/ssl/private-ca/nuggets-ca.pem node your-agent.js
+```
+
 ## License
 
 MIT

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import httpx
 import jwt
@@ -33,10 +33,20 @@ class NuggetsTokenVerifier:
         issuer_url: str,
         audience: Optional[str] = None,
         jwks_cache_ttl: int = 3600,
+        ca_cert: Optional[str] = None,
+        verify_ssl: bool = True,
     ) -> None:
         self._issuer_url = issuer_url.rstrip("/")
         self._audience = audience
         self._jwks_cache_ttl = jwks_cache_ttl
+
+        # TLS configuration for self-hosted deployments
+        if not verify_ssl:
+            self._verify: Union[bool, str] = False
+        elif ca_cert is not None:
+            self._verify = ca_cert
+        else:
+            self._verify = True
 
         # Cached OIDC discovery data
         self._discovery: Optional[Dict[str, Any]] = None
@@ -51,7 +61,7 @@ class NuggetsTokenVerifier:
 
     def _get_http_client(self) -> httpx.AsyncClient:
         if self._http_client is None:
-            self._http_client = httpx.AsyncClient()
+            self._http_client = httpx.AsyncClient(verify=self._verify)
         return self._http_client
 
     async def aclose(self) -> None:

@@ -18,6 +18,8 @@ class MiddlewareConfig(BaseModel):
     authority_endpoint: str = "/authority/evaluate"
     on_proof: Optional[Callable[["ProofArtifact"], None]] = None
     intent_resolver: Optional[Callable[[str, Dict[str, Any]], Optional[str]]] = None
+    ca_cert: Optional[str] = None
+    verify_ssl: bool = True
 
     model_config = {"arbitrary_types_allowed": True}
 

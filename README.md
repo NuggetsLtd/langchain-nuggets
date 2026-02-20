@@ -165,6 +165,67 @@ All packages read configuration from environment variables:
 | `NUGGETS_PARTNER_SECRET` | Partner secret key |
 | `NUGGETS_OIDC_ISSUER_URL` | OIDC issuer URL (LangGraph auth only) |
 
+
+## Self-Hosted Deployment
+
+All packages work with self-hosted Nuggets instances — point the environment variables to your infrastructure:
+
+```bash
+NUGGETS_API_URL=https://nuggets.internal.example.com/api
+NUGGETS_OIDC_ISSUER_URL=https://nuggets.internal.example.com/oidc
+NUGGETS_PARTNER_ID=your-partner-id
+NUGGETS_PARTNER_SECRET=your-partner-secret
+```
+
+### Custom CA Certificates (Python)
+
+If your instance uses a private CA, pass `ca_cert` to any constructor:
+
+```python
+from langchain_nuggets import NuggetsToolkit
+
+toolkit = NuggetsToolkit(
+    api_url="https://nuggets.internal.example.com/api",
+    partner_id="your-partner-id",
+    partner_secret="your-secret",
+    ca_cert="/etc/ssl/private-ca/nuggets-ca.pem",
+)
+```
+
+The same `ca_cert` and `verify_ssl` parameters are available on `NuggetsAuth`, `NuggetsAuthorityMiddleware`, and `NuggetsApiClient`.
+
+To disable TLS verification entirely (development only):
+
+```python
+toolkit = NuggetsToolkit(..., verify_ssl=False)
+```
+
+### Custom CA Certificates (JS / MCP Server)
+
+The JS toolkit uses the native `fetch` API. Trust a private CA via Node.js's built-in mechanism:
+
+```bash
+NODE_EXTRA_CA_CERTS=/etc/ssl/private-ca/nuggets-ca.pem node your-agent.js
+```
+
+For the MCP server in Claude Desktop config:
+
+```json
+{
+  "mcpServers": {
+    "nuggets": {
+      "command": "npx",
+      "args": ["@nuggetslife/mcp-server"],
+      "env": {
+        "NUGGETS_API_URL": "https://nuggets.internal.example.com/api",
+        "NUGGETS_PARTNER_ID": "your-partner-id",
+        "NUGGETS_PARTNER_SECRET": "your-secret",
+        "NODE_EXTRA_CA_CERTS": "/etc/ssl/private-ca/nuggets-ca.pem"
+      }
+    }
+  }
+}
+```
 ## Development
 
 ```bash

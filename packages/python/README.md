@@ -85,6 +85,43 @@ result = executor.invoke({"input": "Verify alice@example.com"})
 | `partner_id` | `NUGGETS_PARTNER_ID` | Your partner ID |
 | `partner_secret` | `NUGGETS_PARTNER_SECRET` | Your partner secret |
 
+
+## Self-Hosted Deployment
+
+All classes accept configurable URLs — point to your own Nuggets instance:
+
+```python
+toolkit = NuggetsToolkit(
+    api_url="https://nuggets.internal.example.com/api",
+    partner_id="your-partner-id",
+    partner_secret="your-secret",
+)
+```
+
+### Custom CA Certificates
+
+For self-hosted instances using a private CA:
+
+```python
+toolkit = NuggetsToolkit(
+    api_url="https://nuggets.internal.example.com/api",
+    partner_id="your-partner-id",
+    partner_secret="your-secret",
+    ca_cert="/etc/ssl/private-ca/nuggets-ca.pem",
+)
+```
+
+The `ca_cert` and `verify_ssl` parameters are also available on:
+- `NuggetsAuth(issuer_url=..., ca_cert=..., verify_ssl=...)`
+- `MiddlewareConfig(api_url=..., ca_cert=..., verify_ssl=...)`
+- `NuggetsApiClient({"api_url": ..., "ca_cert": ..., "verify_ssl": ...})`
+
+To disable TLS verification entirely (development/staging only):
+
+```python
+toolkit = NuggetsToolkit(..., verify_ssl=False)
+```
+
 ## License
 
 MIT

@@ -114,3 +114,26 @@ def test_auth_property_returns_auth_object(mock_verifier):
     assert isinstance(auth, Auth)
     # Verify the authenticate handler was registered
     assert auth._authenticate_handler is not None
+
+
+class TestNuggetsAuthTls:
+    def test_threads_tls_to_verifier(self):
+        with patch.dict(os.environ, {}, clear=True):
+            auth = NuggetsAuth(
+                issuer_url="https://oidc.test",
+                ca_cert="/path/ca.pem",
+                verify_ssl=True,
+            )
+            assert auth._verifier._verify == "/path/ca.pem"
+
+    def test_threads_tls_to_api_client(self):
+        with patch.dict(os.environ, {}, clear=True):
+            auth = NuggetsAuth(
+                issuer_url="https://oidc.test",
+                api_url="https://api.test",
+                partner_id="pid",
+                partner_secret="psec",
+                ca_cert="/path/ca.pem",
+                verify_ssl=False,
+            )
+            assert auth._api_client._verify is False

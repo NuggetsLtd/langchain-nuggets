@@ -136,3 +136,29 @@ class TestProofArtifact:
         assert proof.proof_id == "proof-001"
         assert proof.latency_ms == 42.5
         assert proof.authority_signature == "sig-789"
+
+
+class TestMiddlewareConfigTls:
+    def test_tls_defaults(self):
+        config = MiddlewareConfig(
+            api_url="https://api.test",
+            partner_id="p",
+            partner_secret="s",
+            agent_id="a",
+            controller_id="c",
+            delegation_id="d",
+        )
+        assert config.ca_cert is None
+        assert config.verify_ssl is True
+
+    def test_with_ca_cert(self):
+        config = MiddlewareConfig(
+            api_url="https://api.test",
+            partner_id="p",
+            partner_secret="s",
+            agent_id="a",
+            controller_id="c",
+            delegation_id="d",
+            ca_cert="/path/ca.pem",
+        )
+        assert config.ca_cert == "/path/ca.pem"
