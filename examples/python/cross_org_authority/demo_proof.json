@@ -1,0 +1,20 @@
+{
+  "proof_id": "proof-fa04b8289bf6",
+  "agent_id": "did:nuggets:oidc:agent-partner-remote",
+  "controller_id": "org-partner",
+  "delegation_id": "del-intent",
+  "tool": "check_kyc_status",
+  "parameters_hash": "f65d13d7cdc07420a9575c01485db3e94b1834cdc872ec7f8dc75ccffd51fd5f",
+  "result_hash": "ccc3fae10dd021df9f4db760bba8b17988093742d4ba13491d2243af9a38833a",
+  "intent_hash": "3de9d7c30acfcae5774787233c7b2c132559fdb8236f400566266e98bb7de347",
+  "constraints_evaluated": [
+    "not_revoked",
+    "expiry_valid",
+    "tool_allowed",
+    "target_allowed",
+    "cap_invocations"
+  ],
+  "authority_signature": "15fde41685d6c5ac3d92711a684ef9480a977ee6151830fd0201f7553f0d9b7c",
+  "timestamp": "2026-03-04T19:06:28.801507+00:00",
+  "latency_ms": 15.774416970089078
+}
