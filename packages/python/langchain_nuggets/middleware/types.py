@@ -1,7 +1,7 @@
 """Type definitions for the Nuggets Authority Middleware."""
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -31,6 +31,7 @@ class ActionContext(BaseModel):
     target: Optional[str] = None
     parameters_hash: str
     intent: Optional[str] = None
+    intent_hash: Optional[str] = None
     timestamp: str
 
 
@@ -53,6 +54,7 @@ class AuthorityEvaluationResponse(BaseModel):
     proof_id: str
     signature: str
     reason_code: Optional[str] = None
+    constraints_evaluated: List[str] = []
 
 
 class ProofArtifact(BaseModel):
@@ -65,6 +67,8 @@ class ProofArtifact(BaseModel):
     tool: str
     parameters_hash: str
     result_hash: str
+    intent_hash: Optional[str] = None
+    constraints_evaluated: List[str] = []
     authority_signature: str
     timestamp: str
     latency_ms: float

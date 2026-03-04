@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from langchain_nuggets.middleware.types import AuthorityEvaluationResponse, ProofArtifact
 
@@ -24,6 +24,17 @@ def hash_result(result: str) -> str:
     return hashlib.sha256(result.encode("utf-8")).hexdigest()
 
 
+def hash_intent(intent_string: str, parameters_hash: str, timestamp: str) -> str:
+    """Compute cryptographic intent hash.
+
+    intent_hash = SHA256(intent_string + parameters_hash + timestamp)
+    Changing intent produces a different proof hash, preventing
+    post-hoc reinterpretation of what the agent claimed it was doing.
+    """
+    combined = intent_string + parameters_hash + timestamp
+    return hashlib.sha256(combined.encode("utf-8")).hexdigest()
+
+
 def build_proof_artifact(
     authority_response: AuthorityEvaluationResponse,
     agent_id: str,
@@ -33,6 +44,7 @@ def build_proof_artifact(
     parameters_hash: str,
     result_hash: str,
     latency_ms: float,
+    intent_hash: Optional[str] = None,
 ) -> ProofArtifact:
     """Build a ProofArtifact from an authority response and execution context."""
     return ProofArtifact(
@@ -43,6 +55,8 @@ def build_proof_artifact(
         tool=tool,
         parameters_hash=parameters_hash,
         result_hash=result_hash,
+        intent_hash=intent_hash,
+        constraints_evaluated=authority_response.constraints_evaluated,
         authority_signature=authority_response.signature,
         timestamp=datetime.now(timezone.utc).isoformat(),
         latency_ms=latency_ms,

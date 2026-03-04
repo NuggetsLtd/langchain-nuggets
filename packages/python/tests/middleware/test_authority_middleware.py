@@ -6,7 +6,7 @@ import pytest
 from langchain_core.messages import ToolMessage
 
 from langchain_nuggets.middleware.authority_middleware import NuggetsAuthorityMiddleware
-from langchain_nuggets.middleware.proof import hash_parameters
+from langchain_nuggets.middleware.proof import hash_intent, hash_parameters
 from langchain_nuggets.middleware.types import MiddlewareConfig
 
 
@@ -29,6 +29,7 @@ def allow_response():
         "proof_id": "proof-xyz",
         "signature": "sig-abc",
         "reason_code": None,
+        "constraints_evaluated": ["tool_allowed", "target_allowed", "cap_remaining"],
     }
 
 
@@ -256,3 +257,111 @@ class TestMiddlewareTls:
         )
         middleware = NuggetsAuthorityMiddleware(config)
         assert middleware._client._verify == "/path/ca.pem"
+
+
+class TestIntentBinding:
+    def test_intent_hash_in_proof_when_intent_resolver_set(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        config_with_intent = config.model_copy(
+            update={"intent_resolver": lambda tool, args: "transfer funds to user"}
+        )
+        middleware = NuggetsAuthorityMiddleware(config_with_intent)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        proof = middleware.proofs[0]
+        assert proof.intent_hash is not None
+        assert len(proof.intent_hash) == 64  # SHA-256 hex
+
+    def test_no_intent_hash_without_resolver(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        proof = middleware.proofs[0]
+        assert proof.intent_hash is None
+
+    def test_different_intent_different_proof_hash(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        """Same tool + same args + different intent → different intent_hash in proof."""
+        intents = iter(["transfer funds", "check balance"])
+        config_with_intent = config.model_copy(
+            update={"intent_resolver": lambda tool, args: next(intents)}
+        )
+        middleware = NuggetsAuthorityMiddleware(config_with_intent)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        proof1, proof2 = middleware.proofs
+        assert proof1.intent_hash != proof2.intent_hash
+
+    def test_intent_hash_sent_in_eval_request(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        config_with_intent = config.model_copy(
+            update={"intent_resolver": lambda tool, args: "transfer funds"}
+        )
+        middleware = NuggetsAuthorityMiddleware(config_with_intent)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        payload = middleware._client.post.call_args[0][1]
+        assert payload["action"]["intent_hash"] is not None
+        assert payload["action"]["intent"] == "transfer funds"
+
+
+class TestConstraintsEvaluated:
+    def test_constraints_in_proof(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        proof = middleware.proofs[0]
+        assert proof.constraints_evaluated == ["tool_allowed", "target_allowed", "cap_remaining"]
+
+    def test_empty_constraints_when_not_provided(
+        self, config, mock_request, mock_handler
+    ):
+        response_no_constraints = {
+            "decision": "ALLOW",
+            "proof_id": "proof-xyz",
+            "signature": "sig-abc",
+            "reason_code": None,
+        }
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = response_no_constraints
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        proof = middleware.proofs[0]
+        assert proof.constraints_evaluated == []
+
+    async def test_constraints_in_async_proof(
+        self, config, allow_response, mock_request, mock_async_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock(return_value=allow_response)
+
+        await middleware.awrap_tool_call(mock_request, mock_async_handler)
+
+        proof = middleware.proofs[0]
+        assert proof.constraints_evaluated == ["tool_allowed", "target_allowed", "cap_remaining"]

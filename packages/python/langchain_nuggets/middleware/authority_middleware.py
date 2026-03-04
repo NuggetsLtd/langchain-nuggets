@@ -12,6 +12,7 @@ from langchain_core.messages import ToolMessage
 from langchain_nuggets.client.nuggets_api_client import NuggetsApiClient
 from langchain_nuggets.middleware.proof import (
     build_proof_artifact,
+    hash_intent,
     hash_parameters,
     hash_result,
 )
@@ -76,6 +77,14 @@ class NuggetsAuthorityMiddleware:
         # Extract target from args if present, otherwise default to tool name
         target = tool_args.get("target", tool_name) if isinstance(tool_args, dict) else tool_name
 
+        parameters_hash = hash_parameters(tool_args)
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Compute intent hash if intent is available
+        intent_hash = None
+        if intent is not None:
+            intent_hash = hash_intent(intent, parameters_hash, timestamp)
+
         return AuthorityEvaluationRequest(
             agent_id=self._config.agent_id,
             controller_id=self._config.controller_id,
@@ -83,9 +92,10 @@ class NuggetsAuthorityMiddleware:
             action=ActionContext(
                 tool=tool_name,
                 target=str(target),
-                parameters_hash=hash_parameters(tool_args),
+                parameters_hash=parameters_hash,
                 intent=intent,
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                intent_hash=intent_hash,
+                timestamp=timestamp,
             ),
         )
 
@@ -167,9 +177,10 @@ class NuggetsAuthorityMiddleware:
             controller_id=self._config.controller_id,
             delegation_id=self._config.delegation_id,
             tool=tool_name,
-            parameters_hash=hash_parameters(tool_args),
+            parameters_hash=eval_request.action.parameters_hash,
             result_hash=hash_result(result_content),
             latency_ms=total_latency,
+            intent_hash=eval_request.action.intent_hash,
         )
         self._emit_proof(proof)
 
@@ -227,9 +238,10 @@ class NuggetsAuthorityMiddleware:
             controller_id=self._config.controller_id,
             delegation_id=self._config.delegation_id,
             tool=tool_name,
-            parameters_hash=hash_parameters(tool_args),
+            parameters_hash=eval_request.action.parameters_hash,
             result_hash=hash_result(result_content),
             latency_ms=total_latency,
+            intent_hash=eval_request.action.intent_hash,
         )
         self._emit_proof(proof)
 

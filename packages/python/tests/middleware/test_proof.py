@@ -4,6 +4,7 @@ import json
 
 from langchain_nuggets.middleware.proof import (
     build_proof_artifact,
+    hash_intent,
     hash_parameters,
     hash_result,
 )
@@ -65,3 +66,107 @@ class TestBuildProofArtifact:
         # Timestamp should be ISO 8601 UTC
         assert "T" in proof.timestamp
         assert proof.timestamp.endswith("+00:00") or proof.timestamp.endswith("Z")
+
+
+class TestHashIntent:
+    def test_deterministic(self):
+        h1 = hash_intent("transfer funds", "phash1", "2026-01-01T00:00:00Z")
+        h2 = hash_intent("transfer funds", "phash1", "2026-01-01T00:00:00Z")
+        assert h1 == h2
+
+    def test_different_intent_different_hash(self):
+        h1 = hash_intent("transfer funds", "phash1", "2026-01-01T00:00:00Z")
+        h2 = hash_intent("check balance", "phash1", "2026-01-01T00:00:00Z")
+        assert h1 != h2
+
+    def test_same_intent_different_params_different_hash(self):
+        h1 = hash_intent("transfer funds", "phash1", "2026-01-01T00:00:00Z")
+        h2 = hash_intent("transfer funds", "phash2", "2026-01-01T00:00:00Z")
+        assert h1 != h2
+
+    def test_same_intent_different_timestamp_different_hash(self):
+        h1 = hash_intent("transfer funds", "phash1", "2026-01-01T00:00:00Z")
+        h2 = hash_intent("transfer funds", "phash1", "2026-01-02T00:00:00Z")
+        assert h1 != h2
+
+    def test_known_value(self):
+        import hashlib
+        combined = "transfer funds" + "phash1" + "2026-01-01T00:00:00Z"
+        expected = hashlib.sha256(combined.encode("utf-8")).hexdigest()
+        assert hash_intent("transfer funds", "phash1", "2026-01-01T00:00:00Z") == expected
+
+
+class TestBuildProofArtifactIntentBinding:
+    def test_intent_hash_included_in_proof(self):
+        response = AuthorityEvaluationResponse(
+            decision="ALLOW",
+            proof_id="proof-001",
+            signature="sig-abc",
+        )
+        proof = build_proof_artifact(
+            authority_response=response,
+            agent_id="agent-1",
+            controller_id="org-1",
+            delegation_id="del-1",
+            tool="stripe_payment",
+            parameters_hash="params-hash",
+            result_hash="result-hash",
+            latency_ms=10.0,
+            intent_hash="intent-hash-abc",
+        )
+        assert proof.intent_hash == "intent-hash-abc"
+
+    def test_intent_hash_none_by_default(self):
+        response = AuthorityEvaluationResponse(
+            decision="ALLOW",
+            proof_id="proof-001",
+            signature="sig-abc",
+        )
+        proof = build_proof_artifact(
+            authority_response=response,
+            agent_id="agent-1",
+            controller_id="org-1",
+            delegation_id="del-1",
+            tool="stripe_payment",
+            parameters_hash="params-hash",
+            result_hash="result-hash",
+            latency_ms=10.0,
+        )
+        assert proof.intent_hash is None
+
+    def test_constraints_evaluated_from_response(self):
+        response = AuthorityEvaluationResponse(
+            decision="ALLOW",
+            proof_id="proof-001",
+            signature="sig-abc",
+            constraints_evaluated=["tool_allowed", "cap_remaining", "expiry_valid"],
+        )
+        proof = build_proof_artifact(
+            authority_response=response,
+            agent_id="agent-1",
+            controller_id="org-1",
+            delegation_id="del-1",
+            tool="stripe_payment",
+            parameters_hash="params-hash",
+            result_hash="result-hash",
+            latency_ms=10.0,
+        )
+        assert proof.constraints_evaluated == ["tool_allowed", "cap_remaining", "expiry_valid"]
+
+    def test_constraints_evaluated_empty_by_default(self):
+        response = AuthorityEvaluationResponse(
+            decision="ALLOW",
+            proof_id="proof-001",
+            signature="sig-abc",
+        )
+        proof = build_proof_artifact(
+            authority_response=response,
+            agent_id="agent-1",
+            controller_id="org-1",
+            delegation_id="del-1",
+            tool="stripe_payment",
+            parameters_hash="params-hash",
+            result_hash="result-hash",
+            latency_ms=10.0,
+        )
+        assert proof.constraints_evaluated == []
