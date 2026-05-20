@@ -112,3 +112,79 @@ class TestNuggetsApiClientTls:
             # The path doesn't exist, so httpx will raise when creating the client
             # This verifies the verify param is actually passed through
             client._get_sync_client()
+
+
+class TestNuggetsApiClientHeaders:
+    @respx.mock
+    def test_custom_header_included(self):
+        respx.post("https://api.nuggets.test/partner/auth").mock(
+            return_value=Response(200, json=AUTH_RESPONSE)
+        )
+        route = respx.post("https://api.nuggets.test/x").mock(
+            return_value=Response(200, json={"ok": True})
+        )
+        client = NuggetsApiClient(TEST_CONFIG)
+        client.post("/x", {"k": "v"}, headers={"Idempotency-Key": "abc-123"})
+        sent = route.calls.last.request.headers
+        assert sent["Idempotency-Key"] == "abc-123"
+        assert sent["Authorization"] == "Bearer auth-token"
+        assert sent["Content-Type"] == "application/json"
+
+    @respx.mock
+    def test_caller_cannot_override_authorization(self):
+        respx.post("https://api.nuggets.test/partner/auth").mock(
+            return_value=Response(200, json=AUTH_RESPONSE)
+        )
+        route = respx.post("https://api.nuggets.test/x").mock(
+            return_value=Response(200, json={"ok": True})
+        )
+        client = NuggetsApiClient(TEST_CONFIG)
+        client.post(
+            "/x",
+            {"k": "v"},
+            headers={"Authorization": "Bearer attacker", "authorization": "lowercase"},
+        )
+        sent = route.calls.last.request.headers
+        assert sent["Authorization"] == "Bearer auth-token"
+
+    @respx.mock
+    def test_caller_cannot_override_content_type(self):
+        respx.post("https://api.nuggets.test/partner/auth").mock(
+            return_value=Response(200, json=AUTH_RESPONSE)
+        )
+        route = respx.post("https://api.nuggets.test/x").mock(
+            return_value=Response(200, json={"ok": True})
+        )
+        client = NuggetsApiClient(TEST_CONFIG)
+        client.post("/x", {"k": "v"}, headers={"Content-Type": "text/plain"})
+        sent = route.calls.last.request.headers
+        assert sent["Content-Type"] == "application/json"
+
+    @respx.mock
+    async def test_async_custom_header_included(self):
+        respx.post("https://api.nuggets.test/partner/auth").mock(
+            return_value=Response(200, json=AUTH_RESPONSE)
+        )
+        route = respx.post("https://api.nuggets.test/x").mock(
+            return_value=Response(200, json={"ok": True})
+        )
+        client = NuggetsApiClient(TEST_CONFIG)
+        await client.apost("/x", {"k": "v"}, headers={"Idempotency-Key": "abc-123"})
+        sent = route.calls.last.request.headers
+        assert sent["Idempotency-Key"] == "abc-123"
+        assert sent["Authorization"] == "Bearer auth-token"
+
+    @respx.mock
+    async def test_async_caller_cannot_override_authorization(self):
+        respx.post("https://api.nuggets.test/partner/auth").mock(
+            return_value=Response(200, json=AUTH_RESPONSE)
+        )
+        route = respx.post("https://api.nuggets.test/x").mock(
+            return_value=Response(200, json={"ok": True})
+        )
+        client = NuggetsApiClient(TEST_CONFIG)
+        await client.apost(
+            "/x", {"k": "v"}, headers={"Authorization": "Bearer attacker"}
+        )
+        sent = route.calls.last.request.headers
+        assert sent["Authorization"] == "Bearer auth-token"

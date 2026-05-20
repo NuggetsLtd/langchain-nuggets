@@ -17,6 +17,23 @@ class NuggetsApiClientError(Exception):
         self.status_code = status_code
 
 
+_RESERVED_HEADERS = frozenset({"authorization", "content-type"})
+
+
+def _merge_headers(token: str, extra: Optional[Dict[str, str]]) -> Dict[str, str]:
+    """Build request headers, applying SDK defaults last so callers can't
+    overwrite Authorization / Content-Type. Case-insensitive on extra keys."""
+    headers: Dict[str, str] = {}
+    if extra:
+        for key, value in extra.items():
+            if key.lower() in _RESERVED_HEADERS:
+                continue
+            headers[key] = value
+    headers["Content-Type"] = "application/json"
+    headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 class NuggetsApiClient:
     """HTTP client for the Nuggets API with automatic auth token management."""
 
@@ -95,12 +112,7 @@ class NuggetsApiClient:
     ) -> Any:
         token = self._authenticate_sync()
         client = self._get_sync_client()
-        merged_headers: Dict[str, str] = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        }
-        if headers:
-            merged_headers.update(headers)
+        merged_headers: Dict[str, str] = _merge_headers(token, headers)
         kwargs: Dict[str, Any] = {
             "method": method,
             "url": f"{self._api_url}{path}",
@@ -175,12 +187,7 @@ class NuggetsApiClient:
     ) -> Any:
         token = await self._authenticate_async()
         client = await self._get_async_client()
-        merged_headers: Dict[str, str] = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        }
-        if headers:
-            merged_headers.update(headers)
+        merged_headers: Dict[str, str] = _merge_headers(token, headers)
         kwargs: Dict[str, Any] = {
             "method": method,
             "url": f"{self._api_url}{path}",
