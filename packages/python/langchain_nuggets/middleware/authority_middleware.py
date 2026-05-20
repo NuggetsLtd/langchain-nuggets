@@ -158,9 +158,13 @@ class NuggetsAuthorityMiddleware:
             auth_response = self._test_mode_response()
         else:
             try:
+                assert self._agent_private_key_pem is not None, (
+                    "agent_private_key required when test_mode=False "
+                    "(should be enforced by MiddlewareConfig)"
+                )
                 payload = eval_request.model_dump()
                 payload["agent_proof"] = sign_agent_proof(
-                    self._agent_private_key_pem,  # type: ignore[arg-type]
+                    self._agent_private_key_pem,
                     self._config.agent_id,
                     eval_request.action.nonce,
                 )
@@ -230,9 +234,13 @@ class NuggetsAuthorityMiddleware:
             auth_response = self._test_mode_response()
         else:
             try:
+                assert self._agent_private_key_pem is not None, (
+                    "agent_private_key required when test_mode=False "
+                    "(should be enforced by MiddlewareConfig)"
+                )
                 payload = eval_request.model_dump()
                 payload["agent_proof"] = sign_agent_proof(
-                    self._agent_private_key_pem,  # type: ignore[arg-type]
+                    self._agent_private_key_pem,
                     self._config.agent_id,
                     eval_request.action.nonce,
                 )

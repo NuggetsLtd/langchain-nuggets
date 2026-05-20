@@ -14,6 +14,7 @@ from typing import Any, Dict, Union
 
 import jwt
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from jwt.algorithms import RSAAlgorithm
 
 PrivateKeyInput = Union[str, Dict[str, Any]]
@@ -29,6 +30,11 @@ def load_private_key(value: PrivateKeyInput) -> str:
     """Normalise a private key input (PEM string, file path, or JWK dict) to PEM."""
     if isinstance(value, dict):
         key = RSAAlgorithm.from_jwk(json.dumps(value))
+        if not isinstance(key, RSAPrivateKey):
+            raise ValueError(
+                "agent_private_key JWK must be a private RSA key "
+                "(missing private parameters like 'd')"
+            )
         return key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,

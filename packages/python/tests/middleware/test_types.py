@@ -221,6 +221,32 @@ class TestMiddlewareConfigAgentProof:
         assert config.agent_private_key == pem
 
     def test_jwk_dict_accepted(self):
-        jwk = {"kty": "RSA", "n": "...", "e": "AQAB", "d": "..."}
+        # Valid private JWK (generated via cryptography lib at test time)
+        import json as _json
+
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from jwt.algorithms import RSAAlgorithm
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwk = _json.loads(RSAAlgorithm.to_jwk(priv))
         config = MiddlewareConfig(**self._base_kwargs(), agent_private_key=jwk)
         assert config.agent_private_key == jwk
+
+    def test_public_jwk_rejected(self):
+        import json as _json
+
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from jwt.algorithms import RSAAlgorithm
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_jwk = _json.loads(RSAAlgorithm.to_jwk(priv.public_key()))
+        with pytest.raises(ValidationError) as exc_info:
+            MiddlewareConfig(**self._base_kwargs(), agent_private_key=public_jwk)
+        assert "private" in str(exc_info.value)
+
+    def test_bogus_string_rejected(self):
+        with pytest.raises(ValidationError):
+            MiddlewareConfig(
+                **self._base_kwargs(),
+                agent_private_key="not-a-pem-not-a-path",
+            )

@@ -27,12 +27,20 @@ class MiddlewareConfig(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
     @model_validator(mode="after")
-    def _require_agent_key_when_not_test_mode(self) -> "MiddlewareConfig":
-        if not self.test_mode and self.agent_private_key is None:
-            raise ValueError(
-                "agent_private_key is required when test_mode is False. "
-                "Provide a PEM string, file path, or JWK dict."
-            )
+    def _validate_agent_private_key(self) -> "MiddlewareConfig":
+        if self.agent_private_key is None:
+            if not self.test_mode:
+                raise ValueError(
+                    "agent_private_key is required when test_mode is False. "
+                    "Provide a PEM string, file path, or JWK dict."
+                )
+            return self
+
+        # Validate eagerly so a malformed key fails at config-construction time
+        # rather than mid-request. Import lazily to avoid a circular import.
+        from langchain_nuggets.middleware.agent_proof import load_private_key
+
+        load_private_key(self.agent_private_key)
         return self
 
 
