@@ -155,6 +155,7 @@ class NuggetsAuthorityMiddleware:
                 raw_response = self._client.post(
                     self._config.authority_endpoint,
                     eval_request.model_dump(),
+                    headers={"Idempotency-Key": str(uuid.uuid4())},
                 )
                 auth_response = AuthorityEvaluationResponse(**raw_response)
             except Exception as exc:
@@ -220,6 +221,7 @@ class NuggetsAuthorityMiddleware:
                 raw_response = await self._client.apost(
                     self._config.authority_endpoint,
                     eval_request.model_dump(),
+                    headers={"Idempotency-Key": str(uuid.uuid4())},
                 )
                 auth_response = AuthorityEvaluationResponse(**raw_response)
             except Exception as exc:

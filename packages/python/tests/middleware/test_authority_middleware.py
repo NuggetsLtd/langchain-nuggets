@@ -192,6 +192,65 @@ class TestSyncWrapToolCall:
         proof = middleware.proofs[0]
         assert proof.latency_ms > 0
 
+    def test_idempotency_key_sent_as_header(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        kwargs = middleware._client.post.call_args.kwargs
+        assert "headers" in kwargs
+        assert "Idempotency-Key" in kwargs["headers"]
+        assert len(kwargs["headers"]["Idempotency-Key"]) == 36  # uuid4
+
+    def test_idempotency_key_unique_per_call(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        keys = [
+            call.kwargs["headers"]["Idempotency-Key"]
+            for call in middleware._client.post.call_args_list
+        ]
+        assert keys[0] != keys[1]
+
+    def test_nonce_sent_in_action_payload(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        payload = middleware._client.post.call_args.args[1]
+        assert "nonce" in payload["action"]
+        assert len(payload["action"]["nonce"]) == 36
+
+    def test_nonce_unique_per_call(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        nonces = [
+            call.args[1]["action"]["nonce"]
+            for call in middleware._client.post.call_args_list
+        ]
+        assert nonces[0] != nonces[1]
+
 
 class TestAsyncWrapToolCall:
     async def test_allow_executes_tool(
@@ -242,6 +301,30 @@ class TestAsyncWrapToolCall:
 
         assert len(middleware.proofs) == 1
         assert middleware.proofs[0].proof_id == "proof-xyz"
+
+    async def test_idempotency_key_sent_as_header_async(
+        self, config, allow_response, mock_request, mock_async_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock(return_value=allow_response)
+
+        await middleware.awrap_tool_call(mock_request, mock_async_handler)
+
+        kwargs = middleware._client.apost.call_args.kwargs
+        assert "Idempotency-Key" in kwargs["headers"]
+
+    async def test_nonce_sent_in_action_payload_async(
+        self, config, allow_response, mock_request, mock_async_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock(return_value=allow_response)
+
+        await middleware.awrap_tool_call(mock_request, mock_async_handler)
+
+        payload = middleware._client.apost.call_args.args[1]
+        assert "nonce" in payload["action"]
 
 
 class TestMiddlewareTls:
