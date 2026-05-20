@@ -278,6 +278,25 @@ pip install -e ".[dev,langgraph]"
 pytest
 ```
 
+### End-to-end smoke test against a live backend
+
+To verify the SDK works against a real Nuggets backend (dev / staging / prod), pre-create a delegation with your test tool in `allowed_capabilities`, then run from the repo root:
+
+```bash
+export NUGGETS_AUTHORITY_URL="https://accounts-dev.nuggets.life"
+export NUGGETS_PARTNER_ID="..."
+export NUGGETS_PARTNER_SECRET="..."
+export NUGGETS_AGENT_ID="did:nuggets:oidc:..."
+export NUGGETS_CONTROLLER_ID="did:nuggets:oidc:..."
+export NUGGETS_DELEGATION_ID="42"
+export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-private-key.pem"
+export NUGGETS_TOOL="check_kyc_status"  # must be in delegation capabilities
+
+python scripts/smoke_test_authority.py
+```
+
+Exits 0 when the backend returns `ALLOW` and a proof artifact is emitted; non-zero on `DENY`, `ERROR`, or network failure. The script does not cryptographically verify the returned signature — that's a separate step against the backend's JWKS endpoint.
+
 ## License
 
 [MIT](./LICENSE)
