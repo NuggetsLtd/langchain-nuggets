@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "js-v*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -37,12 +38,24 @@ jobs:
 
       - name: Publish @nuggetslife/langchain
         working-directory: packages/js
-        run: pnpm publish --access public --no-git-checks --provenance
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@nuggetslife/langchain@$VERSION" version >/dev/null 2>&1; then
+            echo "Already published @nuggetslife/langchain@$VERSION — skipping."
+          else
+            pnpm publish --access public --no-git-checks --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @nuggetslife/mcp-server
         working-directory: packages/mcp-server
-        run: pnpm publish --access public --no-git-checks --provenance
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@nuggetslife/mcp-server@$VERSION" version >/dev/null 2>&1; then
+            echo "Already published @nuggetslife/mcp-server@$VERSION — skipping."
+          else
+            pnpm publish --access public --no-git-checks --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
