@@ -1,12 +1,12 @@
 import json
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from langchain_nuggets.client.nuggets_api_client import NuggetsApiClient
 from langchain_nuggets.tools.kyc import (
-    InitiateKycVerification,
     CheckKycStatus,
+    InitiateKycVerification,
     VerifyAge,
     VerifyCredential,
 )

@@ -1,9 +1,9 @@
 """Check KYC status tool."""
 from __future__ import annotations
-from urllib.parse import quote
 
 import json
 from typing import Optional, Type
+from urllib.parse import quote
 
 from langchain_core.callbacks import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from pydantic import BaseModel, Field
@@ -21,9 +21,9 @@ class CheckKycStatus(NuggetsBaseTool):
     args_schema: Type[BaseModel] = CheckKycStatusInput
 
     def _run(self, sessionId: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        result = self.client.get(f"/kyc/sessions/{quote(sessionId, safe="")}")
+        result = self.client.get(f"/kyc/sessions/{quote(sessionId, safe='')}")
         return json.dumps(result)
 
     async def _arun(self, sessionId: str, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
-        result = await self.client.aget(f"/kyc/sessions/{quote(sessionId, safe="")}")
+        result = await self.client.aget(f"/kyc/sessions/{quote(sessionId, safe='')}")
         return json.dumps(result)

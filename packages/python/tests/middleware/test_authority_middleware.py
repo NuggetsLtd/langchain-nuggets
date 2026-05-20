@@ -6,7 +6,7 @@ import pytest
 from langchain_core.messages import ToolMessage
 
 from langchain_nuggets.middleware.authority_middleware import NuggetsAuthorityMiddleware
-from langchain_nuggets.middleware.proof import hash_intent, hash_parameters
+from langchain_nuggets.middleware.proof import hash_parameters
 from langchain_nuggets.middleware.types import MiddlewareConfig
 
 
