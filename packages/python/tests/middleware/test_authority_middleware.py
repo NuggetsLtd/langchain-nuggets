@@ -2,7 +2,10 @@
 import json
 from unittest.mock import AsyncMock, MagicMock
 
+import jwt
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from langchain_core.messages import ToolMessage
 
 from langchain_nuggets.middleware.authority_middleware import NuggetsAuthorityMiddleware
@@ -10,8 +13,27 @@ from langchain_nuggets.middleware.proof import hash_parameters
 from langchain_nuggets.middleware.types import MiddlewareConfig
 
 
+@pytest.fixture(scope="module")
+def rsa_keypair():
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
+    return {"private_pem": private_pem, "public_pem": public_pem}
+
+
 @pytest.fixture
-def config():
+def config(rsa_keypair):
     return MiddlewareConfig(
         api_url="https://api.nuggets.test",
         partner_id="partner-123",
@@ -19,6 +41,7 @@ def config():
         agent_id="agent-123",
         controller_id="org-456",
         delegation_id="del-789",
+        agent_private_key=rsa_keypair["private_pem"],
     )
 
 
@@ -337,6 +360,7 @@ class TestMiddlewareTls:
             controller_id="c",
             delegation_id="d",
             ca_cert="/path/ca.pem",
+            test_mode=True,
         )
         middleware = NuggetsAuthorityMiddleware(config)
         assert middleware._client._verify == "/path/ca.pem"
@@ -533,3 +557,144 @@ class TestTestMode:
 
     def test_default_is_not_test_mode(self, config):
         assert config.test_mode is False
+
+
+class TestAgentProof:
+    def test_agent_proof_field_sent_in_payload(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        payload = middleware._client.post.call_args.args[1]
+        assert "agent_proof" in payload
+        assert isinstance(payload["agent_proof"], str)
+        assert payload["agent_proof"].count(".") == 2  # JWS has three segments
+
+    def test_agent_proof_verifies_with_public_key(
+        self, config, rsa_keypair, allow_response, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        payload = middleware._client.post.call_args.args[1]
+        decoded = jwt.decode(
+            payload["agent_proof"],
+            rsa_keypair["public_pem"],
+            algorithms=["RS256"],
+        )
+        assert decoded["agent_id"] == config.agent_id
+        assert decoded["nonce"] == payload["action"]["nonce"]
+        assert "iat" in decoded
+        assert "exp" in decoded
+        assert decoded["exp"] > decoded["iat"]
+
+    def test_agent_proof_fresh_per_call(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        proofs = [
+            call.args[1]["agent_proof"]
+            for call in middleware._client.post.call_args_list
+        ]
+        assert proofs[0] != proofs[1]
+
+    def test_jwk_dict_private_key(
+        self, rsa_keypair, allow_response, mock_request, mock_handler
+    ):
+        # Convert PEM to JWK using PyJWT's algorithm helper
+        algo = jwt.algorithms.RSAAlgorithm(jwt.algorithms.RSAAlgorithm.SHA256)
+        private_key = algo.prepare_key(rsa_keypair["private_pem"])
+        jwk = json.loads(algo.to_jwk(private_key))
+
+        config = MiddlewareConfig(
+            api_url="https://api.nuggets.test",
+            partner_id="p",
+            partner_secret="s",
+            agent_id="agent-123",
+            controller_id="c",
+            delegation_id="d",
+            agent_private_key=jwk,
+        )
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        payload = middleware._client.post.call_args.args[1]
+        decoded = jwt.decode(
+            payload["agent_proof"],
+            rsa_keypair["public_pem"],
+            algorithms=["RS256"],
+        )
+        assert decoded["agent_id"] == "agent-123"
+
+    def test_file_path_private_key(
+        self, tmp_path, rsa_keypair, allow_response, mock_request, mock_handler
+    ):
+        key_file = tmp_path / "agent.pem"
+        key_file.write_text(rsa_keypair["private_pem"])
+
+        config = MiddlewareConfig(
+            api_url="https://api.nuggets.test",
+            partner_id="p",
+            partner_secret="s",
+            agent_id="agent-123",
+            controller_id="c",
+            delegation_id="d",
+            agent_private_key=str(key_file),
+        )
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        payload = middleware._client.post.call_args.args[1]
+        assert payload["agent_proof"].count(".") == 2
+
+    async def test_agent_proof_in_async_payload(
+        self, config, allow_response, mock_request, mock_async_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock(return_value=allow_response)
+
+        await middleware.awrap_tool_call(mock_request, mock_async_handler)
+
+        payload = middleware._client.apost.call_args.args[1]
+        assert "agent_proof" in payload
+        assert payload["agent_proof"].count(".") == 2
+
+    def test_test_mode_skips_agent_proof(
+        self, mock_request, mock_handler
+    ):
+        config = MiddlewareConfig(
+            api_url="https://unreachable.invalid",
+            partner_id="p",
+            partner_secret="s",
+            agent_id="agent-test",
+            controller_id="c",
+            delegation_id="d",
+            test_mode=True,
+        )
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+
+        # No private key set; test_mode should bypass JWS generation
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+        assert isinstance(result, ToolMessage)
+        middleware._client.post.assert_not_called()

@@ -20,6 +20,7 @@ class TestMiddlewareConfig:
             agent_id="agent-1",
             controller_id="org-1",
             delegation_id="del-1",
+            test_mode=True,
         )
         assert config.api_url == "https://api.nuggets.test"
         assert config.agent_id == "agent-1"
@@ -32,6 +33,7 @@ class TestMiddlewareConfig:
             agent_id="agent-1",
             controller_id="org-1",
             delegation_id="del-1",
+            test_mode=True,
         )
         assert config.authority_endpoint == "/api/authority/evaluate"
         assert config.on_proof is None
@@ -174,6 +176,7 @@ class TestMiddlewareConfigTls:
             agent_id="a",
             controller_id="c",
             delegation_id="d",
+            test_mode=True,
         )
         assert config.ca_cert is None
         assert config.verify_ssl is True
@@ -187,5 +190,37 @@ class TestMiddlewareConfigTls:
             controller_id="c",
             delegation_id="d",
             ca_cert="/path/ca.pem",
+            test_mode=True,
         )
         assert config.ca_cert == "/path/ca.pem"
+
+
+class TestMiddlewareConfigAgentProof:
+    def _base_kwargs(self):
+        return dict(
+            api_url="https://api.test",
+            partner_id="p",
+            partner_secret="s",
+            agent_id="a",
+            controller_id="c",
+            delegation_id="d",
+        )
+
+    def test_test_mode_allows_missing_key(self):
+        config = MiddlewareConfig(**self._base_kwargs(), test_mode=True)
+        assert config.agent_private_key is None
+
+    def test_non_test_mode_requires_key(self):
+        with pytest.raises(ValidationError) as exc_info:
+            MiddlewareConfig(**self._base_kwargs())
+        assert "agent_private_key" in str(exc_info.value)
+
+    def test_pem_string_accepted(self):
+        pem = "-----BEGIN RSA PRIVATE KEY-----\nABC\n-----END RSA PRIVATE KEY-----"
+        config = MiddlewareConfig(**self._base_kwargs(), agent_private_key=pem)
+        assert config.agent_private_key == pem
+
+    def test_jwk_dict_accepted(self):
+        jwk = {"kty": "RSA", "n": "...", "e": "AQAB", "d": "..."}
+        config = MiddlewareConfig(**self._base_kwargs(), agent_private_key=jwk)
+        assert config.agent_private_key == jwk

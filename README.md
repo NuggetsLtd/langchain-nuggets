@@ -99,6 +99,7 @@ config = MiddlewareConfig(
     agent_id="agent-001",
     controller_id="org-001",
     delegation_id="del-001",
+    agent_private_key="/path/to/agent-private-key.pem",  # downloaded from accounts portal
 )
 
 middleware = NuggetsAuthorityMiddleware(config)
@@ -115,6 +116,25 @@ for proof in middleware.proofs:
 ```
 
 See the [demo script](./examples/python/authority_middleware_demo.py).
+
+#### Agent private key
+
+Every authority request is signed with an RS256 JWS proving the request originated from the agent that owns the DID. The Nuggets backend verifies the signature against the agent's registered OIDC public key.
+
+Generate the keypair via the Nuggets accounts portal during agent registration; the portal returns the private key for you to download. Pass it to `MiddlewareConfig.agent_private_key` in any of these forms:
+
+```python
+# PEM string
+config = MiddlewareConfig(..., agent_private_key=open("agent.pem").read())
+
+# File path
+config = MiddlewareConfig(..., agent_private_key="/path/to/agent.pem")
+
+# JWK dict
+config = MiddlewareConfig(..., agent_private_key={"kty": "RSA", "n": "...", "e": "AQAB", "d": "..."})
+```
+
+Currently only RS256 is supported (matches the portal-generated keypair format). Ed25519 is planned. The key is not transmitted; only the signed JWS is sent.
 
 #### Test mode
 
