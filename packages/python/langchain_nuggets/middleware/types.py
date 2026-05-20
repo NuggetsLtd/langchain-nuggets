@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class MiddlewareConfig(BaseModel):
@@ -22,8 +22,26 @@ class MiddlewareConfig(BaseModel):
     ca_cert: Optional[str] = None
     verify_ssl: bool = True
     test_mode: bool = False
+    agent_private_key: Optional[Union[str, Dict[str, Any]]] = None
 
     model_config = {"arbitrary_types_allowed": True}
+
+    @model_validator(mode="after")
+    def _validate_agent_private_key(self) -> "MiddlewareConfig":
+        if self.agent_private_key is None:
+            if not self.test_mode:
+                raise ValueError(
+                    "agent_private_key is required when test_mode is False. "
+                    "Provide a PEM string, file path, or JWK dict."
+                )
+            return self
+
+        # Validate eagerly so a malformed key fails at config-construction time
+        # rather than mid-request. Import lazily to avoid a circular import.
+        from langchain_nuggets.middleware.agent_proof import load_private_key
+
+        load_private_key(self.agent_private_key)
+        return self
 
 
 class ActionContext(BaseModel):
