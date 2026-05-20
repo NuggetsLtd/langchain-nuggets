@@ -69,6 +69,33 @@ class TestActionContext:
         assert ctx.target is None
         assert ctx.intent is None
 
+    def test_nonce_auto_generated(self):
+        ctx = ActionContext(
+            tool="lookup",
+            parameters_hash="def456",
+            timestamp="2026-02-18T10:45:00Z",
+        )
+        assert ctx.nonce
+        assert len(ctx.nonce) == 36  # uuid4 with dashes
+
+    def test_nonce_unique_per_instance(self):
+        ctx1 = ActionContext(tool="t", parameters_hash="h", timestamp="2026-02-18T10:45:00Z")
+        ctx2 = ActionContext(tool="t", parameters_hash="h", timestamp="2026-02-18T10:45:00Z")
+        assert ctx1.nonce != ctx2.nonce
+
+    def test_nonce_serialized(self):
+        ctx = ActionContext(tool="t", parameters_hash="h", timestamp="2026-02-18T10:45:00Z")
+        assert ctx.model_dump()["nonce"] == ctx.nonce
+
+    def test_nonce_can_be_overridden(self):
+        ctx = ActionContext(
+            tool="t",
+            parameters_hash="h",
+            timestamp="2026-02-18T10:45:00Z",
+            nonce="custom-nonce-value",
+        )
+        assert ctx.nonce == "custom-nonce-value"
+
 
 class TestAuthorityEvaluationRequest:
     def test_nested_structure(self):
