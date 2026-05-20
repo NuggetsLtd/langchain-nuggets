@@ -31,7 +31,7 @@
 │                             │                                       │
 │                             ▼                                       │
 │              ┌──────────────────────────────────┐                   │
-│              │  POST /authority/evaluate         │                   │
+│              │  POST /api/authority/evaluate     │                   │
 │              │  (Nuggets Control Plane)          │                   │
 │              └──────────────┬───────────────────┘                   │
 │                             │                                       │

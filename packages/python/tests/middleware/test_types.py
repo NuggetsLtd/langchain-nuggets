@@ -33,7 +33,7 @@ class TestMiddlewareConfig:
             controller_id="org-1",
             delegation_id="del-1",
         )
-        assert config.authority_endpoint == "/authority/evaluate"
+        assert config.authority_endpoint == "/api/authority/evaluate"
         assert config.on_proof is None
 
     def test_missing_required_field_raises(self):

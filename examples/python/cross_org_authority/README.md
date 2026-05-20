@@ -41,7 +41,7 @@ Org A (Acme Corp)           Org B (Partner Inc)
   │ issues delegation ──────>  │ Agent B has scoped access
   │                            │
   │ local_authority.py         │ NuggetsAuthorityMiddleware
-  │ /authority/evaluate        │ wraps tool calls
+  │ /api/authority/evaluate    │ wraps tool calls
   │                            │
   └── proof verifiable independently by anyone
 ```

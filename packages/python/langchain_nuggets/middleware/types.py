@@ -15,11 +15,12 @@ class MiddlewareConfig(BaseModel):
     agent_id: str
     controller_id: str
     delegation_id: str
-    authority_endpoint: str = "/authority/evaluate"
+    authority_endpoint: str = "/api/authority/evaluate"
     on_proof: Optional[Callable[["ProofArtifact"], None]] = None
     intent_resolver: Optional[Callable[[str, Dict[str, Any]], Optional[str]]] = None
     ca_cert: Optional[str] = None
     verify_ssl: bool = True
+    test_mode: bool = False
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -72,3 +73,4 @@ class ProofArtifact(BaseModel):
     authority_signature: str
     timestamp: str
     latency_ms: float
+    test_mode: bool = False

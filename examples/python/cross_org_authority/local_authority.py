@@ -1,6 +1,6 @@
 """Lightweight local authority server for demo purposes.
 
-Implements the /authority/evaluate endpoint with in-memory delegation
+Implements the /api/authority/evaluate endpoint with in-memory delegation
 storage.  Simulates the real accounts portal endpoint.
 """
 import hashlib
@@ -83,7 +83,7 @@ def get_audit_log() -> List[dict]:
 # ---------- Authority evaluation endpoint ----------
 
 
-@app.post("/authority/evaluate")
+@app.post("/api/authority/evaluate")
 async def evaluate(request_body: dict) -> JSONResponse:
     start = time.monotonic()
 
