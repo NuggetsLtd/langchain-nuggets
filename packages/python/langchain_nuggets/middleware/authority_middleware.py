@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -124,6 +125,15 @@ class NuggetsAuthorityMiddleware:
         if self._on_proof is not None:
             self._on_proof(proof)
 
+    def _test_mode_response(self) -> AuthorityEvaluationResponse:
+        return AuthorityEvaluationResponse(
+            decision="ALLOW",
+            proof_id=f"test-{uuid.uuid4()}",
+            signature="test-mode-unverifiable",
+            reason_code=None,
+            constraints_evaluated=["test_mode"],
+        )
+
     def wrap_tool_call(self, request: Any, handler: Any) -> Any:
         """Synchronous tool call wrapper compatible with LangGraph ToolNode.
 
@@ -138,24 +148,27 @@ class NuggetsAuthorityMiddleware:
         eval_request = self._build_eval_request(tool_name, tool_args)
         start_time = time.monotonic()
 
-        try:
-            raw_response = self._client.post(
-                self._config.authority_endpoint,
-                eval_request.model_dump(),
-            )
-            auth_response = AuthorityEvaluationResponse(**raw_response)
-        except Exception as exc:
-            logger.error("Authority evaluation failed: %s", exc)
-            return ToolMessage(
-                content=json.dumps(
-                    {
-                        "status": "ERROR",
-                        "tool": tool_name,
-                        "message": f"Authority evaluation failed: {exc}",
-                    }
-                ),
-                tool_call_id=tool_call_id,
-            )
+        if self._config.test_mode:
+            auth_response = self._test_mode_response()
+        else:
+            try:
+                raw_response = self._client.post(
+                    self._config.authority_endpoint,
+                    eval_request.model_dump(),
+                )
+                auth_response = AuthorityEvaluationResponse(**raw_response)
+            except Exception as exc:
+                logger.error("Authority evaluation failed: %s", exc)
+                return ToolMessage(
+                    content=json.dumps(
+                        {
+                            "status": "ERROR",
+                            "tool": tool_name,
+                            "message": f"Authority evaluation failed: {exc}",
+                        }
+                    ),
+                    tool_call_id=tool_call_id,
+                )
 
         if auth_response.decision == "DENY":
             logger.info("DENY: tool=%s reason=%s", tool_name, auth_response.reason_code)
@@ -181,6 +194,7 @@ class NuggetsAuthorityMiddleware:
             result_hash=hash_result(result_content),
             latency_ms=total_latency,
             intent_hash=eval_request.action.intent_hash,
+            test_mode=self._config.test_mode,
         )
         self._emit_proof(proof)
 
@@ -199,24 +213,27 @@ class NuggetsAuthorityMiddleware:
         eval_request = self._build_eval_request(tool_name, tool_args)
         start_time = time.monotonic()
 
-        try:
-            raw_response = await self._client.apost(
-                self._config.authority_endpoint,
-                eval_request.model_dump(),
-            )
-            auth_response = AuthorityEvaluationResponse(**raw_response)
-        except Exception as exc:
-            logger.error("Authority evaluation failed: %s", exc)
-            return ToolMessage(
-                content=json.dumps(
-                    {
-                        "status": "ERROR",
-                        "tool": tool_name,
-                        "message": f"Authority evaluation failed: {exc}",
-                    }
-                ),
-                tool_call_id=tool_call_id,
-            )
+        if self._config.test_mode:
+            auth_response = self._test_mode_response()
+        else:
+            try:
+                raw_response = await self._client.apost(
+                    self._config.authority_endpoint,
+                    eval_request.model_dump(),
+                )
+                auth_response = AuthorityEvaluationResponse(**raw_response)
+            except Exception as exc:
+                logger.error("Authority evaluation failed: %s", exc)
+                return ToolMessage(
+                    content=json.dumps(
+                        {
+                            "status": "ERROR",
+                            "tool": tool_name,
+                            "message": f"Authority evaluation failed: {exc}",
+                        }
+                    ),
+                    tool_call_id=tool_call_id,
+                )
 
         if auth_response.decision == "DENY":
             logger.info("DENY: tool=%s reason=%s", tool_name, auth_response.reason_code)
@@ -242,6 +259,7 @@ class NuggetsAuthorityMiddleware:
             result_hash=hash_result(result_content),
             latency_ms=total_latency,
             intent_hash=eval_request.action.intent_hash,
+            test_mode=self._config.test_mode,
         )
         self._emit_proof(proof)
 

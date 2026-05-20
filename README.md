@@ -116,6 +116,22 @@ for proof in middleware.proofs:
 
 See the [demo script](./examples/python/authority_middleware_demo.py).
 
+#### Test mode
+
+Pass `test_mode=True` to run the middleware without a live Nuggets backend. Every authority check returns `ALLOW`, no HTTP request is made, and the emitted proof artifact is flagged `test_mode=True` with `authority_signature="test-mode-unverifiable"`. Test-mode proofs will not validate against production keys.
+
+```python
+config = MiddlewareConfig(
+    api_url="https://api.nuggets.life",  # unused in test mode
+    partner_id="test",
+    partner_secret="test",
+    agent_id="agent-001",
+    controller_id="org-001",
+    delegation_id="del-001",
+    test_mode=True,
+)
+```
+
 ## Tools
 
 ### KYC (Know Your Customer)
