@@ -289,6 +289,7 @@ export NUGGETS_PARTNER_SECRET="..."
 export NUGGETS_AGENT_ID="did:nuggets:oidc:..."
 export NUGGETS_CONTROLLER_ID="did:nuggets:oidc:..."
 export NUGGETS_DELEGATION_ID="42"
+export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-private-key.pem"
 export NUGGETS_TOOL="check_kyc_status"  # must be in delegation capabilities
 
 python scripts/smoke_test_authority.py

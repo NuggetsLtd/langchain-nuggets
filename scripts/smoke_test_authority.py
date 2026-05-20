@@ -9,8 +9,9 @@ SDK's request shape, auth flow, and response handling work against the
 real Next.js route at /api/authority/evaluate.
 
 Setup:
-    Pre-create a delegation via the portal or POST /api/delegations with
-    NUGGETS_TOOL in its allowed_capabilities. Note the delegation_id.
+    Register the agent and download its private key from the accounts portal.
+    Pre-create a delegation with NUGGETS_TOOL in its allowed_capabilities;
+    note the delegation_id.
 
 Usage:
     export NUGGETS_AUTHORITY_URL="https://accounts-dev.nuggets.life"
@@ -19,6 +20,7 @@ Usage:
     export NUGGETS_AGENT_ID="did:nuggets:oidc:..."
     export NUGGETS_CONTROLLER_ID="did:nuggets:oidc:..."
     export NUGGETS_DELEGATION_ID="42"
+    export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-private-key.pem"
     export NUGGETS_TOOL="check_kyc_status"  # must be in delegation's capabilities
 
     python scripts/smoke_test_authority.py
@@ -41,6 +43,7 @@ REQUIRED_ENV = [
     "NUGGETS_AGENT_ID",
     "NUGGETS_CONTROLLER_ID",
     "NUGGETS_DELEGATION_ID",
+    "NUGGETS_AGENT_PRIVATE_KEY",
 ]
 
 
@@ -63,6 +66,7 @@ def main() -> None:
         agent_id=os.environ["NUGGETS_AGENT_ID"],
         controller_id=os.environ["NUGGETS_CONTROLLER_ID"],
         delegation_id=os.environ["NUGGETS_DELEGATION_ID"],
+        agent_private_key=os.environ["NUGGETS_AGENT_PRIVATE_KEY"],
     )
 
     middleware = NuggetsAuthorityMiddleware(config)
