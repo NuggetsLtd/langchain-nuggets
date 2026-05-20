@@ -20,6 +20,7 @@ class TestMiddlewareConfig:
             agent_id="agent-1",
             controller_id="org-1",
             delegation_id="del-1",
+            test_mode=True,
         )
         assert config.api_url == "https://api.nuggets.test"
         assert config.agent_id == "agent-1"
@@ -32,6 +33,7 @@ class TestMiddlewareConfig:
             agent_id="agent-1",
             controller_id="org-1",
             delegation_id="del-1",
+            test_mode=True,
         )
         assert config.authority_endpoint == "/api/authority/evaluate"
         assert config.on_proof is None
@@ -68,6 +70,33 @@ class TestActionContext:
         )
         assert ctx.target is None
         assert ctx.intent is None
+
+    def test_nonce_auto_generated(self):
+        ctx = ActionContext(
+            tool="lookup",
+            parameters_hash="def456",
+            timestamp="2026-02-18T10:45:00Z",
+        )
+        assert ctx.nonce
+        assert len(ctx.nonce) == 36  # uuid4 with dashes
+
+    def test_nonce_unique_per_instance(self):
+        ctx1 = ActionContext(tool="t", parameters_hash="h", timestamp="2026-02-18T10:45:00Z")
+        ctx2 = ActionContext(tool="t", parameters_hash="h", timestamp="2026-02-18T10:45:00Z")
+        assert ctx1.nonce != ctx2.nonce
+
+    def test_nonce_serialized(self):
+        ctx = ActionContext(tool="t", parameters_hash="h", timestamp="2026-02-18T10:45:00Z")
+        assert ctx.model_dump()["nonce"] == ctx.nonce
+
+    def test_nonce_can_be_overridden(self):
+        ctx = ActionContext(
+            tool="t",
+            parameters_hash="h",
+            timestamp="2026-02-18T10:45:00Z",
+            nonce="custom-nonce-value",
+        )
+        assert ctx.nonce == "custom-nonce-value"
 
 
 class TestAuthorityEvaluationRequest:
@@ -147,6 +176,7 @@ class TestMiddlewareConfigTls:
             agent_id="a",
             controller_id="c",
             delegation_id="d",
+            test_mode=True,
         )
         assert config.ca_cert is None
         assert config.verify_ssl is True
@@ -160,5 +190,63 @@ class TestMiddlewareConfigTls:
             controller_id="c",
             delegation_id="d",
             ca_cert="/path/ca.pem",
+            test_mode=True,
         )
         assert config.ca_cert == "/path/ca.pem"
+
+
+class TestMiddlewareConfigAgentProof:
+    def _base_kwargs(self):
+        return dict(
+            api_url="https://api.test",
+            partner_id="p",
+            partner_secret="s",
+            agent_id="a",
+            controller_id="c",
+            delegation_id="d",
+        )
+
+    def test_test_mode_allows_missing_key(self):
+        config = MiddlewareConfig(**self._base_kwargs(), test_mode=True)
+        assert config.agent_private_key is None
+
+    def test_non_test_mode_requires_key(self):
+        with pytest.raises(ValidationError) as exc_info:
+            MiddlewareConfig(**self._base_kwargs())
+        assert "agent_private_key" in str(exc_info.value)
+
+    def test_pem_string_accepted(self):
+        pem = "-----BEGIN RSA PRIVATE KEY-----\nABC\n-----END RSA PRIVATE KEY-----"
+        config = MiddlewareConfig(**self._base_kwargs(), agent_private_key=pem)
+        assert config.agent_private_key == pem
+
+    def test_jwk_dict_accepted(self):
+        # Valid private JWK (generated via cryptography lib at test time)
+        import json as _json
+
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from jwt.algorithms import RSAAlgorithm
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwk = _json.loads(RSAAlgorithm.to_jwk(priv))
+        config = MiddlewareConfig(**self._base_kwargs(), agent_private_key=jwk)
+        assert config.agent_private_key == jwk
+
+    def test_public_jwk_rejected(self):
+        import json as _json
+
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from jwt.algorithms import RSAAlgorithm
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_jwk = _json.loads(RSAAlgorithm.to_jwk(priv.public_key()))
+        with pytest.raises(ValidationError) as exc_info:
+            MiddlewareConfig(**self._base_kwargs(), agent_private_key=public_jwk)
+        assert "private" in str(exc_info.value)
+
+    def test_bogus_string_rejected(self):
+        with pytest.raises(ValidationError):
+            MiddlewareConfig(
+                **self._base_kwargs(),
+                agent_private_key="not-a-pem-not-a-path",
+            )

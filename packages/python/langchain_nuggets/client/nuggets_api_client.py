@@ -17,6 +17,23 @@ class NuggetsApiClientError(Exception):
         self.status_code = status_code
 
 
+_RESERVED_HEADERS = frozenset({"authorization", "content-type"})
+
+
+def _merge_headers(token: str, extra: Optional[Dict[str, str]]) -> Dict[str, str]:
+    """Build request headers, applying SDK defaults last so callers can't
+    overwrite Authorization / Content-Type. Case-insensitive on extra keys."""
+    headers: Dict[str, str] = {}
+    if extra:
+        for key, value in extra.items():
+            if key.lower() in _RESERVED_HEADERS:
+                continue
+            headers[key] = value
+    headers["Content-Type"] = "application/json"
+    headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 class NuggetsApiClient:
     """HTTP client for the Nuggets API with automatic auth token management."""
 
@@ -86,16 +103,20 @@ class NuggetsApiClient:
         }
         return self._token["access_token"]
 
-    def _request_sync(self, method: str, path: str, body: Any = None) -> Any:
+    def _request_sync(
+        self,
+        method: str,
+        path: str,
+        body: Any = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Any:
         token = self._authenticate_sync()
         client = self._get_sync_client()
+        merged_headers: Dict[str, str] = _merge_headers(token, headers)
         kwargs: Dict[str, Any] = {
             "method": method,
             "url": f"{self._api_url}{path}",
-            "headers": {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}",
-            },
+            "headers": merged_headers,
         }
         if body is not None:
             kwargs["content"] = json.dumps(body)
@@ -123,8 +144,14 @@ class NuggetsApiClient:
     def get(self, path: str) -> Any:
         return self._request_sync("GET", path)
 
-    def post(self, path: str, body: Any = None) -> Any:
-        return self._request_sync("POST", path, body)
+    def post(
+        self,
+        path: str,
+        body: Any = None,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Any:
+        return self._request_sync("POST", path, body, headers=headers)
 
     # --- Async methods ---
     async def _get_async_client(self) -> httpx.AsyncClient:
@@ -151,16 +178,20 @@ class NuggetsApiClient:
         }
         return self._token["access_token"]
 
-    async def _request_async(self, method: str, path: str, body: Any = None) -> Any:
+    async def _request_async(
+        self,
+        method: str,
+        path: str,
+        body: Any = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Any:
         token = await self._authenticate_async()
         client = await self._get_async_client()
+        merged_headers: Dict[str, str] = _merge_headers(token, headers)
         kwargs: Dict[str, Any] = {
             "method": method,
             "url": f"{self._api_url}{path}",
-            "headers": {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}",
-            },
+            "headers": merged_headers,
         }
         if body is not None:
             kwargs["content"] = json.dumps(body)
@@ -188,5 +219,11 @@ class NuggetsApiClient:
     async def aget(self, path: str) -> Any:
         return await self._request_async("GET", path)
 
-    async def apost(self, path: str, body: Any = None) -> Any:
-        return await self._request_async("POST", path, body)
+    async def apost(
+        self,
+        path: str,
+        body: Any = None,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Any:
+        return await self._request_async("POST", path, body, headers=headers)

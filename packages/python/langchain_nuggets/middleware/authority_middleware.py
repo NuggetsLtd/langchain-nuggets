@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional
 from langchain_core.messages import ToolMessage
 
 from langchain_nuggets.client.nuggets_api_client import NuggetsApiClient
+from langchain_nuggets.middleware.agent_proof import load_private_key, sign_agent_proof
 from langchain_nuggets.middleware.proof import (
     build_proof_artifact,
     hash_intent,
@@ -58,6 +59,11 @@ class NuggetsAuthorityMiddleware:
         )
         self._proofs: List[ProofArtifact] = []
         self._on_proof: Optional[Callable[[ProofArtifact], Any]] = config.on_proof
+        self._agent_private_key_pem: Optional[str] = (
+            load_private_key(config.agent_private_key)
+            if config.agent_private_key is not None
+            else None
+        )
 
     @property
     def proofs(self) -> List[ProofArtifact]:
@@ -152,9 +158,20 @@ class NuggetsAuthorityMiddleware:
             auth_response = self._test_mode_response()
         else:
             try:
+                assert self._agent_private_key_pem is not None, (
+                    "agent_private_key required when test_mode=False "
+                    "(should be enforced by MiddlewareConfig)"
+                )
+                payload = eval_request.model_dump()
+                payload["agent_proof"] = sign_agent_proof(
+                    self._agent_private_key_pem,
+                    self._config.agent_id,
+                    eval_request.action.nonce,
+                )
                 raw_response = self._client.post(
                     self._config.authority_endpoint,
-                    eval_request.model_dump(),
+                    payload,
+                    headers={"Idempotency-Key": str(uuid.uuid4())},
                 )
                 auth_response = AuthorityEvaluationResponse(**raw_response)
             except Exception as exc:
@@ -217,9 +234,20 @@ class NuggetsAuthorityMiddleware:
             auth_response = self._test_mode_response()
         else:
             try:
+                assert self._agent_private_key_pem is not None, (
+                    "agent_private_key required when test_mode=False "
+                    "(should be enforced by MiddlewareConfig)"
+                )
+                payload = eval_request.model_dump()
+                payload["agent_proof"] = sign_agent_proof(
+                    self._agent_private_key_pem,
+                    self._config.agent_id,
+                    eval_request.action.nonce,
+                )
                 raw_response = await self._client.apost(
                     self._config.authority_endpoint,
-                    eval_request.model_dump(),
+                    payload,
+                    headers={"Idempotency-Key": str(uuid.uuid4())},
                 )
                 auth_response = AuthorityEvaluationResponse(**raw_response)
             except Exception as exc:
