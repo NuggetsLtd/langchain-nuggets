@@ -1,7 +1,7 @@
 """Pre-built authorization handlers for common Nuggets identity patterns."""
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Callable
 
 
 def require_kyc() -> Callable:

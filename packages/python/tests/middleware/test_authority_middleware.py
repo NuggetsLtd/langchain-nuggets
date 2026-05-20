@@ -6,7 +6,7 @@ import pytest
 from langchain_core.messages import ToolMessage
 
 from langchain_nuggets.middleware.authority_middleware import NuggetsAuthorityMiddleware
-from langchain_nuggets.middleware.proof import hash_intent, hash_parameters
+from langchain_nuggets.middleware.proof import hash_parameters
 from langchain_nuggets.middleware.types import MiddlewareConfig
 
 
@@ -365,3 +365,88 @@ class TestConstraintsEvaluated:
 
         proof = middleware.proofs[0]
         assert proof.constraints_evaluated == ["tool_allowed", "target_allowed", "cap_remaining"]
+
+
+class TestTestMode:
+    @pytest.fixture
+    def test_mode_config(self):
+        return MiddlewareConfig(
+            api_url="https://unreachable.invalid",
+            partner_id="test-partner",
+            partner_secret="test-secret",
+            agent_id="agent-test",
+            controller_id="org-test",
+            delegation_id="del-test",
+            test_mode=True,
+        )
+
+    def test_sync_skips_http_call(self, test_mode_config, mock_request, mock_handler):
+        middleware = NuggetsAuthorityMiddleware(test_mode_config)
+        middleware._client = MagicMock()
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        middleware._client.post.assert_not_called()
+        mock_handler.assert_called_once_with(mock_request)
+        assert isinstance(result, ToolMessage)
+
+    def test_sync_proof_marked_test_mode(self, test_mode_config, mock_request, mock_handler):
+        middleware = NuggetsAuthorityMiddleware(test_mode_config)
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        proof = middleware.proofs[0]
+        assert proof.test_mode is True
+        assert proof.authority_signature == "test-mode-unverifiable"
+        assert proof.proof_id.startswith("test-")
+
+    def test_sync_proof_preserves_hashes_and_intent(
+        self, test_mode_config, mock_request, mock_handler
+    ):
+        cfg = test_mode_config.model_copy(
+            update={"intent_resolver": lambda tool, args: "transfer funds"}
+        )
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        proof = middleware.proofs[0]
+        assert proof.parameters_hash == hash_parameters({"target": "stripe", "amount": 100})
+        assert proof.result_hash  # non-empty
+        assert proof.intent_hash is not None
+
+    async def test_async_skips_http_call(
+        self, test_mode_config, mock_request, mock_async_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(test_mode_config)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock()
+
+        result = await middleware.awrap_tool_call(mock_request, mock_async_handler)
+
+        middleware._client.apost.assert_not_called()
+        mock_async_handler.assert_awaited_once_with(mock_request)
+        assert isinstance(result, ToolMessage)
+
+    async def test_async_proof_marked_test_mode(
+        self, test_mode_config, mock_request, mock_async_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(test_mode_config)
+        await middleware.awrap_tool_call(mock_request, mock_async_handler)
+
+        proof = middleware.proofs[0]
+        assert proof.test_mode is True
+        assert proof.authority_signature == "test-mode-unverifiable"
+
+    def test_proof_callback_invoked_in_test_mode(
+        self, test_mode_config, mock_request, mock_handler
+    ):
+        callback = MagicMock()
+        cfg = test_mode_config.model_copy(update={"on_proof": callback})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        callback.assert_called_once()
+        assert callback.call_args[0][0].test_mode is True
+
+    def test_default_is_not_test_mode(self, config):
+        assert config.test_mode is False

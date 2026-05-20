@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from langchain_nuggets.middleware.types import AuthorityEvaluationResponse, ProofArtifact
 
@@ -45,6 +45,7 @@ def build_proof_artifact(
     result_hash: str,
     latency_ms: float,
     intent_hash: Optional[str] = None,
+    test_mode: bool = False,
 ) -> ProofArtifact:
     """Build a ProofArtifact from an authority response and execution context."""
     return ProofArtifact(
@@ -60,4 +61,5 @@ def build_proof_artifact(
         authority_signature=authority_response.signature,
         timestamp=datetime.now(timezone.utc).isoformat(),
         latency_ms=latency_ms,
+        test_mode=test_mode,
     )

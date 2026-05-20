@@ -1,9 +1,9 @@
 """Check auth status tool."""
 from __future__ import annotations
-from urllib.parse import quote
 
 import json
 from typing import Optional, Type
+from urllib.parse import quote
 
 from langchain_core.callbacks import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from pydantic import BaseModel, Field
@@ -21,9 +21,9 @@ class CheckAuthStatus(NuggetsBaseTool):
     args_schema: Type[BaseModel] = CheckAuthStatusInput
 
     def _run(self, userId: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        result = self.client.get(f"/auth/status/{quote(userId, safe="")}")
+        result = self.client.get(f"/auth/status/{quote(userId, safe='')}")
         return json.dumps(result)
 
     async def _arun(self, userId: str, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
-        result = await self.client.aget(f"/auth/status/{quote(userId, safe="")}")
+        result = await self.client.aget(f"/auth/status/{quote(userId, safe='')}")
         return json.dumps(result)

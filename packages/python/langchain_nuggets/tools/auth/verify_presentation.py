@@ -1,9 +1,9 @@
 """Verify presentation tool."""
 from __future__ import annotations
-from urllib.parse import quote
 
 import json
 from typing import Optional, Type
+from urllib.parse import quote
 
 from langchain_core.callbacks import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from pydantic import BaseModel, Field
@@ -21,9 +21,9 @@ class VerifyPresentation(NuggetsBaseTool):
     args_schema: Type[BaseModel] = VerifyPresentationInput
 
     def _run(self, sessionId: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        result = self.client.get(f"/credentials/presentations/{quote(sessionId, safe="")}")
+        result = self.client.get(f"/credentials/presentations/{quote(sessionId, safe='')}")
         return json.dumps(result)
 
     async def _arun(self, sessionId: str, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
-        result = await self.client.aget(f"/credentials/presentations/{quote(sessionId, safe="")}")
+        result = await self.client.aget(f"/credentials/presentations/{quote(sessionId, safe='')}")
         return json.dumps(result)

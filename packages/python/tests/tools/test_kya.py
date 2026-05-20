@@ -1,13 +1,11 @@
 import json
-from unittest.mock import patch, AsyncMock
-
-import pytest
+from unittest.mock import patch
 
 from langchain_nuggets.client.nuggets_api_client import NuggetsApiClient
 from langchain_nuggets.tools.kya import (
+    GetAgentTrustScore,
     RegisterAgentIdentity,
     VerifyAgentIdentity,
-    GetAgentTrustScore,
 )
 
 TEST_CONFIG = {
