@@ -30,7 +30,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Dict, Union
 
 from langchain_core.messages import ToolMessage
 
@@ -52,6 +54,40 @@ def fail(message: str) -> None:
     sys.exit(1)
 
 
+def load_key_from_env() -> Union[str, Dict[str, Any]]:
+    """Resolve NUGGETS_AGENT_PRIVATE_KEY into a value MiddlewareConfig accepts.
+
+    Supports:
+    - Path to a PEM file (`agent.pem`) — returned as-is, SDK reads the file
+    - Path to a JWK file (single key dict) — parsed and returned as dict
+    - Path to a JWKS file (keys array) — first key returned as dict
+    - Inline JSON (JWK or JWKS) — parsed and returned as dict
+    """
+    raw = os.environ["NUGGETS_AGENT_PRIVATE_KEY"]
+    candidate: Any = None
+
+    if raw.lstrip().startswith("{"):
+        candidate = json.loads(raw)
+    else:
+        path = Path(raw)
+        if path.is_file():
+            content = path.read_text(encoding="utf-8")
+            if content.lstrip().startswith("{"):
+                candidate = json.loads(content)
+            else:
+                # Assume PEM; let the SDK read the file by passing the path.
+                return raw
+        else:
+            # Could be an inline PEM string passed directly via env.
+            return raw
+
+    if isinstance(candidate, dict) and isinstance(candidate.get("keys"), list):
+        if not candidate["keys"]:
+            fail("JWKS contained no keys")
+        return candidate["keys"][0]
+    return candidate
+
+
 def main() -> None:
     missing = [name for name in REQUIRED_ENV if not os.environ.get(name)]
     if missing:
@@ -66,7 +102,7 @@ def main() -> None:
         agent_id=os.environ["NUGGETS_AGENT_ID"],
         controller_id=os.environ["NUGGETS_CONTROLLER_ID"],
         delegation_id=os.environ["NUGGETS_DELEGATION_ID"],
-        agent_private_key=os.environ["NUGGETS_AGENT_PRIVATE_KEY"],
+        agent_private_key=load_key_from_env(),
     )
 
     middleware = NuggetsAuthorityMiddleware(config)
