@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Cross-Org Authority Demo — shape-only sanity check.
+"""Cross-Org Authority Demo — Nuggets Execution-Layer MVP
 
-> **Status: known-broken end-to-end.** The middleware now requires an
-> OIDC bearer + signed agent_proof; the local FastAPI mock in
-> `local_authority.py` does not speak OIDC and cannot satisfy real auth.
-> Running this script with `test_mode=True` keeps the SDK happy but
-> short-circuits every scenario to ALLOW — the ALLOW/DENY/cap/expiry
-> distinctions below no longer reflect real backend behaviour.
->
-> Tracking fix in GitHub issues (search "cross_org_authority demo").
-> For real end-to-end verification use `scripts/smoke_test_authority.py`
-> against a deployed environment instead — see `docs/agent-provisioning.md`.
+Runs end-to-end against the local FastAPI mock in `local_authority.py`,
+which provides both the `/api/authority/evaluate` route and a stub
+OIDC `/token` endpoint. The mock does not verify `agent_proof` or the
+OIDC `client_assertion`, but the SDK does sign + send both — so the
+demo exercises the real auth path, just with relaxed server-side
+verification.
+
+For verification against a deployed backend (real signature checks,
+real OIDC), use `scripts/smoke_test_authority.py` — see
+`docs/agent-provisioning.md`.
 
 Demonstrates all six trust primitives:
   1. Actor Identity       — agent DID verification
@@ -20,7 +20,7 @@ Demonstrates all six trust primitives:
   5. Consent              — revocation immediately blocks execution
   6. Accountability       — portable, independently verifiable proof
 
-Scenarios (currently all return ALLOW under test_mode):
+Scenarios:
   1. ALLOW      — in-scope tool call
   2. DENY       — out-of-scope tool
   3. DENY       — cap exceeded
@@ -129,28 +129,33 @@ def run():
     print(f"  Cap:          3 invocations")
     print(f"  Expires:      {delegation['expires_at']}")
 
-    # test_mode short-circuits the real auth flow so the demo can construct
-    # without an OIDC issuer or keypair. This is a known limitation — the
-    # demo no longer hits the FastAPI mock under test_mode, so all scenarios
-    # below return ALLOW regardless of what the mock would have decided.
-    # Follow-up PR adds an OIDC token endpoint to the mock and restores
-    # end-to-end behaviour.
+    # Run the real OIDC + JWS path against the local mock (mock's /token
+    # endpoint accepts any well-formed client_assertion and returns a stub
+    # access token; /api/authority/evaluate ignores the bearer + agent_proof
+    # for verification but accepts them in the request shape). Ephemeral
+    # RSA key is generated per-run.
+    from cryptography.hazmat.primitives import serialization as _ser
+    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+    _demo_key_pem = (
+        _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        .private_bytes(
+            encoding=_ser.Encoding.PEM,
+            format=_ser.PrivateFormat.PKCS8,
+            encryption_algorithm=_ser.NoEncryption(),
+        )
+        .decode("utf-8")
+    )
+
     config = MiddlewareConfig(
         api_url=AUTHORITY_URL,
+        oidc_issuer_url=AUTHORITY_URL,  # mock serves /token on the same port
         agent_id=AGENT_B["did"],
         controller_id=ORG_B["id"],
         delegation_id="del-001",
-        test_mode=True,
+        agent_private_key=_demo_key_pem,
     )
     middleware = NuggetsAuthorityMiddleware(config)
-
-    # Override client to use simple HTTP (no auth needed for demo)
-    import httpx
-    class SimpleClient:
-        def post(self, endpoint, payload):
-            r = httpx.post(f"{AUTHORITY_URL}{endpoint}", json=payload)
-            return r.json()
-    middleware._client = SimpleClient()
 
     # --- Scenario 1: ALLOW ---
     banner("Scenario 1: ALLOW — in-scope tool call")
@@ -191,7 +196,6 @@ def run():
     )
     expired_config = config.model_copy(update={"delegation_id": "del-expired"})
     expired_mw = NuggetsAuthorityMiddleware(expired_config)
-    expired_mw._client = SimpleClient()
 
     request = make_tool_request("check_kyc_status", {"target": "kyc_service"})
     handler = make_handler()
@@ -208,7 +212,6 @@ def run():
     )
     revoke_config = config.model_copy(update={"delegation_id": "del-revoke"})
     revoke_mw = NuggetsAuthorityMiddleware(revoke_config)
-    revoke_mw._client = SimpleClient()
 
     # First call succeeds
     request = make_tool_request("check_kyc_status", {"target": "kyc_service"})
@@ -239,7 +242,6 @@ def run():
         "intent_resolver": lambda tool, args: f"Check KYC for compliance review",
     })
     intent_mw = NuggetsAuthorityMiddleware(intent_config)
-    intent_mw._client = SimpleClient()
 
     request = make_tool_request("check_kyc_status", {"target": "kyc_service", "user_id": "u-123"})
     handler = make_handler('{"verified": true}')
@@ -252,7 +254,6 @@ def run():
         "intent_resolver": lambda tool, args: f"Check KYC for fraud investigation",
     })
     intent_mw2 = NuggetsAuthorityMiddleware(intent_config2)
-    intent_mw2._client = SimpleClient()
 
     request = make_tool_request("check_kyc_status", {"target": "kyc_service", "user_id": "u-123"})
     handler = make_handler('{"verified": true}')

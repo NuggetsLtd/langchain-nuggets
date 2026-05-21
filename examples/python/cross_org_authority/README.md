@@ -48,10 +48,12 @@ Org A (Acme Corp)           Org B (Partner Inc)
 
 ## Mock vs. real backend
 
-`local_authority.py` is a **shape-only mock**, not a substitute for the
-deployed Nuggets backend. It returns plausibly-shaped responses so the
-demo can run offline; it does **not** verify `agent_proof`, enforce
-OIDC bearer auth, or exercise the partner repo's Next.js route.
+`local_authority.py` exercises the real auth flow shape (OIDC
+`client_credentials` → bearer token → signed `agent_proof` in the
+authority POST) but **does not verify** the OIDC `client_assertion`
+or the `agent_proof` JWS. It's enough for the demo to run end-to-end
+offline, but not a substitute for the deployed Nuggets backend, which
+verifies both signatures against the agent's registered JWKS.
 
 To verify the SDK against a real deployed environment, run from the
 **repo root** (not the demo directory):
