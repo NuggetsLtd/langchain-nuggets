@@ -97,10 +97,15 @@ def main() -> None:
 
     middleware = NuggetsAuthorityMiddleware(config)
 
+    target = os.environ.get("NUGGETS_TARGET")
+    args: Dict[str, Any] = {"userId": "smoke-test-user"}
+    if target:
+        args["target"] = target
+
     request = SimpleNamespace(
         tool_call={
             "name": tool_name,
-            "args": {"userId": "smoke-test-user"},
+            "args": args,
             "id": "smoke-call-001",
         }
     )

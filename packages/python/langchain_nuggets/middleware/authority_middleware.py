@@ -29,6 +29,23 @@ from langchain_nuggets.middleware.types import (
 logger = logging.getLogger(__name__)
 
 
+def _extract_oidc_client_id(agent_did: str) -> str:
+    """Extract the OIDC client_id from an agent DID.
+
+    Agents are registered with the Nuggets OIDC provider using the bare
+    identifier (the last segment of the DID), not the full DID. Mirrors
+    the backend's extractClientId() logic in
+    apps/oauth-accounts/src/app/api/authority/evaluate/route.ts.
+    """
+    if agent_did.startswith("did:nuggets:oidc:"):
+        return agent_did[len("did:nuggets:oidc:"):]
+    if agent_did.startswith("did:web:"):
+        segments = agent_did.split(":")
+        if len(segments) >= 4:
+            return segments[-1]
+    return agent_did
+
+
 class NuggetsAuthorityMiddleware:
     """Middleware that intercepts LangChain/LangGraph tool calls and enforces
     Nuggets trust primitives: Actor Identity, Authority, Policy, Intent,
@@ -69,7 +86,7 @@ class NuggetsAuthorityMiddleware:
                 )
             self._client = OidcClientCredentialsClient(
                 issuer_url=config.oidc_issuer_url,
-                client_id=config.agent_id,
+                client_id=_extract_oidc_client_id(config.agent_id),
                 private_key_pem=self._agent_private_key_pem,
                 scope=config.authority_scope,
                 verify_ssl=config.verify_ssl,
