@@ -1,14 +1,20 @@
 """Lightweight local authority server for demo purposes.
 
-Implements the `/api/authority/evaluate` endpoint with in-memory
-delegation storage. This is a **shape-only** mock — it accepts the
-request body produced by `NuggetsAuthorityMiddleware` and returns a
-plausibly-shaped response so the cross-org demo can run offline.
+Implements two endpoints with in-memory state:
 
-**It is not a substitute for testing against the deployed backend.**
-This mock does not verify `agent_proof`, does not enforce OIDC bearer
-auth, and does not exercise the partner repo's Next.js route. Use it
-for SDK-shape exploration only.
+- `POST /api/authority/evaluate` — runs the same constraint-evaluation
+  flow as the partner repo's Next.js route (delegation lookup, scope
+  / cap / expiry / revocation checks, ALLOW/DENY decision + proof).
+- `POST /token` — minimal OIDC `client_credentials` token endpoint.
+  Accepts the SDK's `private_key_jwt` assertion **without verifying
+  the signature** and returns an opaque access token. Just enough to
+  satisfy the middleware's bearer-fetch path so the demo can run the
+  real auth flow offline.
+
+**Still not a substitute for testing against the deployed backend.**
+This mock does not verify `agent_proof` JWS, does not verify the OIDC
+client_assertion, and does not enforce client_id ↔ DID mapping. Use it
+for SDK-shape + scenario exploration only.
 
 For real end-to-end verification against a deployed environment, see
 `scripts/smoke_test_authority.py` (CLI) or
@@ -30,7 +36,8 @@ from demo_config import (
 )
 
 try:
-    from fastapi import FastAPI
+    # `Form(...)` requires python-multipart; FastAPI doesn't pull it in by default.
+    from fastapi import FastAPI, Form
     from fastapi.responses import JSONResponse
     import uvicorn
 except ImportError:
@@ -92,6 +99,36 @@ def get_audit_log() -> List[dict]:
 
 
 # ---------- Authority evaluation endpoint ----------
+
+
+@app.post("/token")
+async def token(
+    grant_type: str = Form(...),
+    client_assertion_type: str = Form(...),
+    client_assertion: str = Form(...),
+    scope: str = Form(""),
+) -> JSONResponse:
+    """Minimal OIDC `client_credentials` token endpoint.
+
+    Accepts the SDK's `private_key_jwt` assertion without verifying the
+    signature. Returns a stub access token so the middleware's bearer
+    fetch can succeed and the demo can run the real auth flow offline.
+    """
+    if grant_type != "client_credentials":
+        return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
+    if client_assertion_type != "urn:ietf:params:oauth:client-assertion-type:jwt-bearer":
+        return JSONResponse({"error": "invalid_client"}, status_code=400)
+    if not client_assertion:
+        return JSONResponse({"error": "invalid_client"}, status_code=400)
+
+    return JSONResponse(
+        {
+            "access_token": "demo-access-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": scope or "authority.evaluate",
+        }
+    )
 
 
 @app.post("/api/authority/evaluate")
