@@ -14,13 +14,12 @@ Setup:
     note the delegation_id.
 
 Usage:
-    export NUGGETS_AUTHORITY_URL="https://accounts-dev.nuggets.life"
-    export NUGGETS_PARTNER_ID="..."
-    export NUGGETS_PARTNER_SECRET="..."
-    export NUGGETS_AGENT_ID="did:nuggets:oidc:..."
+    export NUGGETS_AUTHORITY_URL="https://accounts-dev.internal-nuggets.life"
+    export NUGGETS_OIDC_ISSUER_URL="https://auth-dev.internal-nuggets.life"
+    export NUGGETS_AGENT_ID="did:web:auth-dev.internal-nuggets.life:..."
     export NUGGETS_CONTROLLER_ID="did:nuggets:oidc:..."
     export NUGGETS_DELEGATION_ID="42"
-    export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-private-key.pem"
+    export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"  # or PEM
     export NUGGETS_TOOL="check_kyc_status"  # must be in delegation's capabilities
 
     python scripts/smoke_test_authority.py
@@ -30,7 +29,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Dict, Union
 
 from langchain_core.messages import ToolMessage
 
@@ -38,8 +39,7 @@ from langchain_nuggets.middleware import MiddlewareConfig, NuggetsAuthorityMiddl
 
 REQUIRED_ENV = [
     "NUGGETS_AUTHORITY_URL",
-    "NUGGETS_PARTNER_ID",
-    "NUGGETS_PARTNER_SECRET",
+    "NUGGETS_OIDC_ISSUER_URL",
     "NUGGETS_AGENT_ID",
     "NUGGETS_CONTROLLER_ID",
     "NUGGETS_DELEGATION_ID",
@@ -52,6 +52,33 @@ def fail(message: str) -> None:
     sys.exit(1)
 
 
+def load_key_from_env() -> Union[str, Dict[str, Any]]:
+    """Resolve NUGGETS_AGENT_PRIVATE_KEY to a value MiddlewareConfig accepts.
+
+    Supports PEM file path, inline PEM, JWK JSON file, JWKS JSON file
+    (takes keys[0]), and inline JWK/JWKS JSON.
+    """
+    raw = os.environ["NUGGETS_AGENT_PRIVATE_KEY"]
+    candidate: Any = None
+    if raw.lstrip().startswith("{"):
+        candidate = json.loads(raw)
+    else:
+        path = Path(raw)
+        if path.is_file():
+            content = path.read_text(encoding="utf-8")
+            if content.lstrip().startswith("{"):
+                candidate = json.loads(content)
+            else:
+                return raw
+        else:
+            return raw
+    if isinstance(candidate, dict) and isinstance(candidate.get("keys"), list):
+        if not candidate["keys"]:
+            fail("JWKS contained no keys")
+        return candidate["keys"][0]
+    return candidate
+
+
 def main() -> None:
     missing = [name for name in REQUIRED_ENV if not os.environ.get(name)]
     if missing:
@@ -61,12 +88,11 @@ def main() -> None:
 
     config = MiddlewareConfig(
         api_url=os.environ["NUGGETS_AUTHORITY_URL"],
-        partner_id=os.environ["NUGGETS_PARTNER_ID"],
-        partner_secret=os.environ["NUGGETS_PARTNER_SECRET"],
+        oidc_issuer_url=os.environ["NUGGETS_OIDC_ISSUER_URL"],
         agent_id=os.environ["NUGGETS_AGENT_ID"],
         controller_id=os.environ["NUGGETS_CONTROLLER_ID"],
         delegation_id=os.environ["NUGGETS_DELEGATION_ID"],
-        agent_private_key=os.environ["NUGGETS_AGENT_PRIVATE_KEY"],
+        agent_private_key=load_key_from_env(),
     )
 
     middleware = NuggetsAuthorityMiddleware(config)

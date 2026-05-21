@@ -93,13 +93,12 @@ from langchain_nuggets.middleware import NuggetsAuthorityMiddleware, MiddlewareC
 from langgraph.prebuilt import ToolNode
 
 config = MiddlewareConfig(
-    api_url="https://api.nuggets.life",
-    partner_id="your-partner-id",
-    partner_secret="your-secret",
-    agent_id="agent-001",
-    controller_id="org-001",
-    delegation_id="del-001",
-    agent_private_key="/path/to/agent-private-key.pem",  # downloaded from accounts portal
+    api_url="https://accounts.nuggets.life",                     # authority endpoint host
+    oidc_issuer_url="https://auth.nuggets.life",                 # OIDC provider host
+    agent_id="did:web:auth.nuggets.life:your-agent-id",
+    controller_id="did:nuggets:oidc:your-controller-id",
+    delegation_id="42",
+    agent_private_key="/path/to/agent-private-key.pem",          # downloaded from accounts portal
 )
 
 middleware = NuggetsAuthorityMiddleware(config)
@@ -142,9 +141,7 @@ Pass `test_mode=True` to run the middleware without a live Nuggets backend. Ever
 
 ```python
 config = MiddlewareConfig(
-    api_url="https://api.nuggets.life",  # unused in test mode
-    partner_id="test",
-    partner_secret="test",
+    api_url="https://accounts.nuggets.life",  # unused in test mode
     agent_id="agent-001",
     controller_id="org-001",
     delegation_id="del-001",
@@ -283,10 +280,9 @@ pytest
 To verify the SDK works against a real Nuggets backend (dev / staging / prod), pre-create a delegation with your test tool in `allowed_capabilities`, then run from the repo root:
 
 ```bash
-export NUGGETS_AUTHORITY_URL="https://accounts-dev.nuggets.life"
-export NUGGETS_PARTNER_ID="..."
-export NUGGETS_PARTNER_SECRET="..."
-export NUGGETS_AGENT_ID="did:nuggets:oidc:..."
+export NUGGETS_AUTHORITY_URL="https://accounts-dev.internal-nuggets.life"
+export NUGGETS_OIDC_ISSUER_URL="https://auth-dev.internal-nuggets.life"
+export NUGGETS_AGENT_ID="did:web:auth-dev.internal-nuggets.life:..."
 export NUGGETS_CONTROLLER_ID="did:nuggets:oidc:..."
 export NUGGETS_DELEGATION_ID="42"
 export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-private-key.pem"

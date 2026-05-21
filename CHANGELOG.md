@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Added
+
+- `oidc_issuer_url` field on `MiddlewareConfig` — URL of the Nuggets OIDC provider that mints access tokens for `/api/authority/evaluate`. Required when `test_mode=False`.
+- `OidcClientCredentialsClient` — internal helper that exchanges a `private_key_jwt` client assertion for a bearer access token, caches it, and uses it to authenticate authority requests. Implements OAuth 2.0 client_credentials grant per RFC 6749 §4.4 / RFC 7521.
+- `authority_scope` field on `MiddlewareConfig` (default `"authority.evaluate"`) — scope requested at the OIDC token endpoint.
+
+### Changed
+
+- **Breaking**: removed `partner_id` and `partner_secret` from `MiddlewareConfig`. The middleware no longer calls `/partner/auth` — that endpoint never existed on the deployed Nuggets backend.
+- **Breaking**: HTTP auth on `/api/authority/evaluate` is now an OIDC access token in `Authorization: Bearer <token>`. The token is verified by the backend against the OIDC provider's JWKS. The agent's existing private key is reused to sign the `private_key_jwt` client assertion (no new credentials).
+
+## [0.2.0]
+
 ### Added
 
 - `agent_private_key` field on `MiddlewareConfig` (PEM string, file path, or JWK dict). The middleware signs an RS256 JWS for every authority evaluation request with claims `{agent_id, nonce, iat, exp}` and sends it as `agent_proof` in the request body. The backend verifies the signature against the agent's registered OIDC public key, proving the request originated from the agent that owns the DID. Required when `test_mode=False`.

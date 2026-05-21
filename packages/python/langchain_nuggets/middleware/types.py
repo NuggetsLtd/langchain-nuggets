@@ -11,12 +11,12 @@ class MiddlewareConfig(BaseModel):
     """Configuration for NuggetsAuthorityMiddleware."""
 
     api_url: str
-    partner_id: str
-    partner_secret: str
+    oidc_issuer_url: Optional[str] = None
     agent_id: str
     controller_id: str
     delegation_id: str
     authority_endpoint: str = "/api/authority/evaluate"
+    authority_scope: str = "authority.evaluate"
     on_proof: Optional[Callable[["ProofArtifact"], None]] = None
     intent_resolver: Optional[Callable[[str, Dict[str, Any]], Optional[str]]] = None
     ca_cert: Optional[str] = None
@@ -25,6 +25,16 @@ class MiddlewareConfig(BaseModel):
     agent_private_key: Optional[Union[str, Dict[str, Any]]] = None
 
     model_config = {"arbitrary_types_allowed": True}
+
+    @model_validator(mode="after")
+    def _validate_oidc_issuer_when_not_test_mode(self) -> "MiddlewareConfig":
+        if not self.test_mode and not self.oidc_issuer_url:
+            raise ValueError(
+                "oidc_issuer_url is required when test_mode is False. "
+                "Set it to the Nuggets OIDC provider URL (e.g. "
+                "https://auth-dev.internal-nuggets.life)."
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_agent_private_key(self) -> "MiddlewareConfig":

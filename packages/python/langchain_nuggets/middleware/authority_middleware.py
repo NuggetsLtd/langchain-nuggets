@@ -10,8 +10,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import ToolMessage
 
-from langchain_nuggets.client.nuggets_api_client import NuggetsApiClient
 from langchain_nuggets.middleware.agent_proof import load_private_key, sign_agent_proof
+from langchain_nuggets.middleware.oidc_client import OidcClientCredentialsClient
 from langchain_nuggets.middleware.proof import (
     build_proof_artifact,
     hash_intent,
@@ -48,15 +48,6 @@ class NuggetsAuthorityMiddleware:
 
     def __init__(self, config: MiddlewareConfig) -> None:
         self._config = config
-        self._client = NuggetsApiClient(
-            {
-                "api_url": config.api_url,
-                "partner_id": config.partner_id,
-                "partner_secret": config.partner_secret,
-                "ca_cert": config.ca_cert,
-                "verify_ssl": config.verify_ssl,
-            }
-        )
         self._proofs: List[ProofArtifact] = []
         self._on_proof: Optional[Callable[[ProofArtifact], Any]] = config.on_proof
         self._agent_private_key_pem: Optional[str] = (
@@ -64,6 +55,26 @@ class NuggetsAuthorityMiddleware:
             if config.agent_private_key is not None
             else None
         )
+        self._client: Optional[OidcClientCredentialsClient]
+        if config.test_mode:
+            self._client = None
+        else:
+            # MiddlewareConfig validators guarantee both are set when
+            # test_mode is False. Defensive check in case the validators
+            # ever drift.
+            if self._agent_private_key_pem is None or config.oidc_issuer_url is None:
+                raise RuntimeError(
+                    "agent_private_key and oidc_issuer_url are required when "
+                    "test_mode is False (MiddlewareConfig validator should have caught this)"
+                )
+            self._client = OidcClientCredentialsClient(
+                issuer_url=config.oidc_issuer_url,
+                client_id=config.agent_id,
+                private_key_pem=self._agent_private_key_pem,
+                scope=config.authority_scope,
+                verify_ssl=config.verify_ssl,
+                ca_cert=config.ca_cert,
+            )
 
     @property
     def proofs(self) -> List[ProofArtifact]:
@@ -168,8 +179,10 @@ class NuggetsAuthorityMiddleware:
                     self._config.agent_id,
                     eval_request.action.nonce,
                 )
+                if self._client is None:
+                    raise RuntimeError("OIDC client unavailable in non-test-mode middleware")
                 raw_response = self._client.post(
-                    self._config.authority_endpoint,
+                    f"{self._config.api_url.rstrip('/')}{self._config.authority_endpoint}",
                     payload,
                     headers={"Idempotency-Key": str(uuid.uuid4())},
                 )
@@ -244,8 +257,10 @@ class NuggetsAuthorityMiddleware:
                     self._config.agent_id,
                     eval_request.action.nonce,
                 )
+                if self._client is None:
+                    raise RuntimeError("OIDC client unavailable in non-test-mode middleware")
                 raw_response = await self._client.apost(
-                    self._config.authority_endpoint,
+                    f"{self._config.api_url.rstrip('/')}{self._config.authority_endpoint}",
                     payload,
                     headers={"Idempotency-Key": str(uuid.uuid4())},
                 )
