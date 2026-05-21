@@ -17,7 +17,10 @@ __all__ = [
 # Conditionally expose; without the extra installed, accessing these names
 # raises a clear ImportError instead of an opaque AttributeError.
 try:
-    from langchain_nuggets.langgraph import NuggetsAuth, NuggetsAuthError
+    from langchain_nuggets.langgraph import (  # noqa: F401  (re-exported)
+        NuggetsAuth,
+        NuggetsAuthError,
+    )
 
     __all__.extend(["NuggetsAuth", "NuggetsAuthError"])
 except ImportError:
