@@ -36,8 +36,7 @@ def rsa_keypair():
 def config(rsa_keypair):
     return MiddlewareConfig(
         api_url="https://api.nuggets.test",
-        partner_id="partner-123",
-        partner_secret="secret-456",
+        oidc_issuer_url="https://auth.nuggets.test",
         agent_id="agent-123",
         controller_id="org-456",
         delegation_id="del-789",
@@ -351,18 +350,18 @@ class TestAsyncWrapToolCall:
 
 
 class TestMiddlewareTls:
-    def test_threads_tls_to_client(self):
+    def test_threads_tls_to_client(self, rsa_keypair):
         config = MiddlewareConfig(
             api_url="https://api.test",
-            partner_id="p",
-            partner_secret="s",
+            oidc_issuer_url="https://auth.test",
             agent_id="a",
             controller_id="c",
             delegation_id="d",
             ca_cert="/path/ca.pem",
-            test_mode=True,
+            agent_private_key=rsa_keypair["private_pem"],
         )
         middleware = NuggetsAuthorityMiddleware(config)
+        assert middleware._client is not None
         assert middleware._client._verify == "/path/ca.pem"
 
 
@@ -479,8 +478,6 @@ class TestTestMode:
     def test_mode_config(self):
         return MiddlewareConfig(
             api_url="https://unreachable.invalid",
-            partner_id="test-partner",
-            partner_secret="test-secret",
             agent_id="agent-test",
             controller_id="org-test",
             delegation_id="del-test",
@@ -621,8 +618,7 @@ class TestAgentProof:
 
         config = MiddlewareConfig(
             api_url="https://api.nuggets.test",
-            partner_id="p",
-            partner_secret="s",
+            oidc_issuer_url="https://auth.nuggets.test",
             agent_id="agent-123",
             controller_id="c",
             delegation_id="d",
@@ -650,8 +646,7 @@ class TestAgentProof:
 
         config = MiddlewareConfig(
             api_url="https://api.nuggets.test",
-            partner_id="p",
-            partner_secret="s",
+            oidc_issuer_url="https://auth.nuggets.test",
             agent_id="agent-123",
             controller_id="c",
             delegation_id="d",
@@ -684,8 +679,6 @@ class TestAgentProof:
     ):
         config = MiddlewareConfig(
             api_url="https://unreachable.invalid",
-            partner_id="p",
-            partner_secret="s",
             agent_id="agent-test",
             controller_id="c",
             delegation_id="d",

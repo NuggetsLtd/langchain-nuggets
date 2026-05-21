@@ -15,8 +15,6 @@ class TestMiddlewareConfig:
     def test_required_fields(self):
         config = MiddlewareConfig(
             api_url="https://api.nuggets.test",
-            partner_id="p-123",
-            partner_secret="s-456",
             agent_id="agent-1",
             controller_id="org-1",
             delegation_id="del-1",
@@ -28,8 +26,6 @@ class TestMiddlewareConfig:
     def test_defaults(self):
         config = MiddlewareConfig(
             api_url="https://api.nuggets.test",
-            partner_id="p-123",
-            partner_secret="s-456",
             agent_id="agent-1",
             controller_id="org-1",
             delegation_id="del-1",
@@ -42,7 +38,6 @@ class TestMiddlewareConfig:
         with pytest.raises(ValidationError):
             MiddlewareConfig(
                 api_url="https://api.nuggets.test",
-                partner_id="p-123",
                 # missing partner_secret, agent_id, etc.
             )
 
@@ -171,8 +166,6 @@ class TestMiddlewareConfigTls:
     def test_tls_defaults(self):
         config = MiddlewareConfig(
             api_url="https://api.test",
-            partner_id="p",
-            partner_secret="s",
             agent_id="a",
             controller_id="c",
             delegation_id="d",
@@ -184,8 +177,6 @@ class TestMiddlewareConfigTls:
     def test_with_ca_cert(self):
         config = MiddlewareConfig(
             api_url="https://api.test",
-            partner_id="p",
-            partner_secret="s",
             agent_id="a",
             controller_id="c",
             delegation_id="d",
@@ -199,8 +190,7 @@ class TestMiddlewareConfigAgentProof:
     def _base_kwargs(self):
         return dict(
             api_url="https://api.test",
-            partner_id="p",
-            partner_secret="s",
+            oidc_issuer_url="https://auth.test",
             agent_id="a",
             controller_id="c",
             delegation_id="d",
