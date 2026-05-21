@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langchain-nuggets"
-version = "0.3.0"
-description = "Nuggets identity verification toolkit for LangChain Python"
+version = "0.4.0"
+description = "Nuggets authority middleware for LangChain / LangGraph"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
-keywords = ["langchain", "nuggets", "identity", "kyc", "verification", "ai", "tools"]
+keywords = ["langchain", "langgraph", "nuggets", "authority", "middleware", "trust", "ai", "agents"]
 dependencies = [
     "langchain-core>=0.3.0",
     "httpx>=0.27.0",

@@ -1,3 +1,0 @@
-langchain-nuggets[langgraph]
-langchain-openai
-langgraph
