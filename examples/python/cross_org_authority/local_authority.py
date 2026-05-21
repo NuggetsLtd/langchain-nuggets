@@ -1,7 +1,18 @@
 """Lightweight local authority server for demo purposes.
 
-Implements the /api/authority/evaluate endpoint with in-memory delegation
-storage.  Simulates the real accounts portal endpoint.
+Implements the `/api/authority/evaluate` endpoint with in-memory
+delegation storage. This is a **shape-only** mock — it accepts the
+request body produced by `NuggetsAuthorityMiddleware` and returns a
+plausibly-shaped response so the cross-org demo can run offline.
+
+**It is not a substitute for testing against the deployed backend.**
+This mock does not verify `agent_proof`, does not enforce OIDC bearer
+auth, and does not exercise the partner repo's Next.js route. Use it
+for SDK-shape exploration only.
+
+For real end-to-end verification against a deployed environment, see
+`scripts/smoke_test_authority.py` (CLI) or
+`test_authority_integration.py` (pytest, skips when env unset).
 """
 import hashlib
 import json
