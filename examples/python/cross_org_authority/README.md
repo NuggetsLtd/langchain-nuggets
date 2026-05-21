@@ -53,16 +53,18 @@ deployed Nuggets backend. It returns plausibly-shaped responses so the
 demo can run offline; it does **not** verify `agent_proof`, enforce
 OIDC bearer auth, or exercise the partner repo's Next.js route.
 
-To verify the SDK against a real deployed environment:
+To verify the SDK against a real deployed environment, run from the
+**repo root** (not the demo directory):
 
 ```bash
-# CLI form
 export NUGGETS_AUTHORITY_URL=...
 export NUGGETS_OIDC_ISSUER_URL=...
 export NUGGETS_AGENT_ID=...
 export NUGGETS_CONTROLLER_ID=...
 export NUGGETS_DELEGATION_ID=...
 export NUGGETS_AGENT_PRIVATE_KEY=/path/to/agent-jwks.json
+
+# CLI form
 python scripts/smoke_test_authority.py
 
 # Or via pytest (skips cleanly when env vars are unset)

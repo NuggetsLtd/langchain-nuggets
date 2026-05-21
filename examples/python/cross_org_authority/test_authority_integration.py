@@ -50,17 +50,28 @@ def test_authority_evaluate_against_deployed_backend() -> None:
 
     repo_root = Path(__file__).resolve().parents[3]
     script = repo_root / "scripts" / "smoke_test_authority.py"
-    assert script.is_file(), f"smoke test script missing at {script}"
+    if not script.is_file():
+        pytest.fail(f"smoke test script missing at {script}")
 
-    result = subprocess.run(
-        [sys.executable, str(script)],
-        env=os.environ.copy(),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as err:
+        pytest.fail(
+            f"smoke test did not complete within {err.timeout}s — "
+            "is the backend reachable?"
+        )
+
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
-    assert result.returncode == 0, (
-        f"smoke test exited with code {result.returncode}; see captured output above"
-    )
+    if result.returncode != 0:
+        pytest.fail(
+            f"smoke test exited with code {result.returncode}; "
+            "see captured output above"
+        )
