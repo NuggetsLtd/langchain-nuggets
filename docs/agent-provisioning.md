@@ -173,6 +173,14 @@ python scripts/smoke_test_authority.py
 Expected output ends with `OK` and a proof_id. Anything else points at
 one of the cases in the next section.
 
+### 2.5 Walk through the full scenario suite (optional)
+
+`scripts/demo_deployed_scenarios.py` runs ALLOW + the five DENY
+variants (out-of-scope tool, out-of-scope target, cap exhausted,
+expired, revoked) plus a proof readout against a deployed backend.
+Requires four pre-provisioned delegations — setup steps are at the
+top of that file. Useful for demos and pre-release smoke runs.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
