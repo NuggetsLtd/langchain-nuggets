@@ -86,28 +86,6 @@ async def test_authenticate_invalid_token(mock_verifier):
     assert exc_info.value.status_code == 401
 
 
-@pytest.mark.asyncio
-async def test_authenticate_with_kyc_enrichment(mock_verifier):
-    with patch("langchain_nuggets.langgraph.auth.NuggetsApiClient") as mock_client_cls:
-        mock_client = MagicMock()
-        mock_client.aget = AsyncMock(
-            return_value={"kyc_verified": True, "user_id": "user-123"}
-        )
-        mock_client_cls.return_value = mock_client
-
-        nuggets = NuggetsAuth(
-            issuer_url="https://oidc.nuggets.test",
-            api_url="https://api.nuggets.test",
-            partner_id="pid",
-            partner_secret="psecret",
-        )
-
-        result = await nuggets._authenticate(authorization="Bearer valid-token")
-
-        assert result["kyc_verified"] is True
-        mock_client.aget.assert_called_once_with("/auth/status/user-123")
-
-
 def test_auth_property_returns_auth_object(mock_verifier):
     nuggets = NuggetsAuth(issuer_url="https://oidc.nuggets.test")
     auth = nuggets.auth
@@ -125,15 +103,3 @@ class TestNuggetsAuthTls:
                 verify_ssl=True,
             )
             assert auth._verifier._verify == "/path/ca.pem"
-
-    def test_threads_tls_to_api_client(self):
-        with patch.dict(os.environ, {}, clear=True):
-            auth = NuggetsAuth(
-                issuer_url="https://oidc.test",
-                api_url="https://api.test",
-                partner_id="pid",
-                partner_secret="psec",
-                ca_cert="/path/ca.pem",
-                verify_ssl=False,
-            )
-            assert auth._api_client._verify is False

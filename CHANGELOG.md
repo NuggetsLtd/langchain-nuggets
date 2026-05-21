@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.0]
+
+### Removed
+
+- **Breaking**: `NuggetsToolkit`, `NuggetsApiClient`, `NuggetsApiClientError`, `NuggetsBaseTool`, and all 11 tools under `langchain_nuggets.tools` (KYC, KYA, auth/credentials). The endpoints these tools called (`/partner/auth`, `/kyc/sessions/*`, `/kya/agents/*`, `/auth/status/*`, `/credentials/presentations/*`) don't exist on any deployed Nuggets backend — the toolkit was speculative surface against a REST-shaped product that never shipped. KYC and related flows live on DIDComm in the actual Nuggets product, not on a sync REST API.
+- **Breaking**: `NuggetsAuth.api_url` / `partner_id` / `partner_secret` constructor arguments (and the matching env vars `NUGGETS_API_URL` / `NUGGETS_PARTNER_ID` / `NUGGETS_PARTNER_SECRET`) and the `require_kyc` flag. The OIDC token verification path stays intact; only the broken KYC-status enrichment via `NuggetsApiClient` was removed.
+- **Breaking**: `require_kyc` authorization helper from `langchain_nuggets.langgraph` — its check relied on the removed `kyc_verified` enrichment.
+- **Breaking**: `partner_id`, `partner_secret`, `api_url`, and `require_kyc` fields on `NuggetsAuthConfig`.
+- **Breaking**: `packages/js` (JavaScript / TypeScript toolkit) and `packages/mcp-server` (MCP server) removed for the same reason — both targeted the same fictional endpoints.
+
+### Changed
+
+- Package description / keywords reframed around the authority middleware. The package is now a single-feature SDK for runtime authority enforcement, not a multi-surface identity toolkit.
+- READMEs (root and `packages/python/`) rewritten to match.
+
 ## [0.3.0]
 
 ### Added

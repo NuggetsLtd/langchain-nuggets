@@ -96,7 +96,7 @@ Both sync and async variants are provided:
 | `wrap_tool_call` | `middleware.wrap_tool_call` | Sync tools, `ToolNode` default |
 | `awrap_tool_call` | `middleware.awrap_tool_call` | Async tools, async event loops |
 
-The async variant uses `NuggetsApiClient.apost()` (httpx.AsyncClient) for non-blocking HTTP calls.
+The async variant uses `OidcClientCredentialsClient.apost()` (httpx.AsyncClient) for non-blocking HTTP calls.
 
 ## Proof Artifacts
 

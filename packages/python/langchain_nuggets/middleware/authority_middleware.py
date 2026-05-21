@@ -257,7 +257,7 @@ class NuggetsAuthorityMiddleware:
     async def awrap_tool_call(self, request: Any, handler: Any) -> Any:
         """Asynchronous tool call wrapper compatible with LangGraph ToolNode.
 
-        Async variant of wrap_tool_call. Uses the async NuggetsApiClient methods.
+        Async variant of wrap_tool_call. Uses the async OIDC client methods.
         """
         tool_call = request.tool_call
         tool_name = tool_call["name"]

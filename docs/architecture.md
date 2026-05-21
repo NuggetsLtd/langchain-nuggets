@@ -111,9 +111,9 @@
 │       NuggetsAuthorityMiddleware           │
 │                                            │
 │  ┌──────────────────┐  ┌───────────────┐  │
-│  │ NuggetsApiClient │  │ proof.py      │  │
-│  │ (reused from     │  │ hash_params() │  │
-│  │  toolkit layer)  │  │ hash_result() │  │
+│  │ OidcClient       │  │ proof.py      │  │
+│  │ Credentials      │  │ hash_params() │  │
+│  │ Client           │  │ hash_result() │  │
 │  │                  │  │ build_proof() │  │
 │  │  .post() sync    │  └───────────────┘  │
 │  │  .apost() async  │                     │

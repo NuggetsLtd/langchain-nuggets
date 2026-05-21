@@ -1,143 +1,72 @@
 # langchain-nuggets
 
-Nuggets identity verification for LangChain — KYC, KYA, selective disclosure, and OAuth across three integration layers.
+Authority middleware for LangChain / LangGraph — pre-execution trust enforcement on every tool call.
 
-## Architecture
+Wrap any `ToolNode` and the middleware calls the Nuggets authority endpoint before each tool executes. The backend evaluates a scoped delegation, returns an `ALLOW` or `DENY` decision, and signs an audit proof. Tools that aren't allowed never run.
 
-| Layer | Package | Purpose | Languages |
-|-------|---------|---------|-----------|
-| **Native Toolkit** | [`@nuggetslife/langchain`](./packages/js) (npm) / [`langchain-nuggets`](./packages/python) (PyPI) | Optimized DX with full type safety | TypeScript, Python |
-| **MCP Server** | [`@nuggetslife/mcp-server`](./packages/mcp-server) | Works with any MCP client (Claude Desktop, Cursor, etc.) | Any |
-| **LangGraph Auth** | [`langchain-nuggets[langgraph]`](./packages/python/langchain_nuggets/langgraph) | Nuggets OIDC as auth backend for deployed agents | Python |
-| **Authority Middleware** | [`langchain-nuggets`](./packages/python/langchain_nuggets/middleware) | Pre-execution trust enforcement for every tool call | Python |
-
-## Quick Start
-
-### TypeScript
-
-```bash
-npm install @nuggetslife/langchain @langchain/core
-```
-
-```typescript
-import { NuggetsToolkit } from "@nuggetslife/langchain";
-
-const toolkit = new NuggetsToolkit({
-  apiUrl: "https://api.nuggets.life",
-  partnerId: "your-partner-id",
-  partnerSecret: "your-secret",
-});
-
-const tools = toolkit.getTools(); // 11 identity tools
-```
-
-### Python
+## Install
 
 ```bash
 pip install langchain-nuggets
 ```
 
-```python
-from langchain_nuggets import NuggetsToolkit
-
-toolkit = NuggetsToolkit(
-    api_url="https://api.nuggets.life",
-    partner_id="your-partner-id",
-    partner_secret="your-secret",
-)
-
-tools = toolkit.get_tools()  # 11 identity tools
-```
-
-### MCP Server (Claude Desktop / Cursor)
-
-Add to your Claude Desktop config:
-
-```json
-{
-  "mcpServers": {
-    "nuggets": {
-      "command": "npx",
-      "args": ["@nuggetslife/mcp-server"],
-      "env": {
-        "NUGGETS_API_URL": "https://api.nuggets.life",
-        "NUGGETS_PARTNER_ID": "your-partner-id",
-        "NUGGETS_PARTNER_SECRET": "your-partner-secret"
-      }
-    }
-  }
-}
-```
-
-### LangGraph Auth Provider
+For LangGraph Platform OIDC auth:
 
 ```bash
 pip install langchain-nuggets[langgraph]
 ```
 
-```python
-from langchain_nuggets.langgraph import NuggetsAuth
-
-nuggets = NuggetsAuth(issuer_url="https://oidc.nuggets.life")
-auth = nuggets.auth  # Pass to langgraph.json
-```
-
-See the [full example deployment](./examples/python/langgraph_auth_agent/).
-
-### Authority Middleware
-
-Intercept every tool call with Nuggets trust enforcement — validates authority, enforces policy, and emits cryptographic proof artifacts.
+## Authority Middleware
 
 ```python
 from langchain_nuggets.middleware import NuggetsAuthorityMiddleware, MiddlewareConfig
 from langgraph.prebuilt import ToolNode
 
 config = MiddlewareConfig(
-    api_url="https://accounts.nuggets.life",                     # authority endpoint host
-    oidc_issuer_url="https://auth.nuggets.life",                 # OIDC provider host
+    api_url="https://accounts.nuggets.life",
+    oidc_issuer_url="https://auth.nuggets.life",
     agent_id="did:web:auth.nuggets.life:your-agent-id",
-    controller_id="did:nuggets:oidc:your-controller-id",
+    controller_id="did:web:auth.nuggets.life:your-controller-id",
     delegation_id="42",
-    agent_private_key="/path/to/agent-private-key.pem",          # downloaded from accounts portal
+    agent_private_key="/path/to/agent-jwks.json",
 )
 
 middleware = NuggetsAuthorityMiddleware(config)
 
-# Every tool call goes through Nuggets authority check
 tool_node = ToolNode(
     tools=your_tools,
     wrap_tool_call=middleware.wrap_tool_call,
 )
 
-# After execution, inspect proof artifacts
 for proof in middleware.proofs:
     print(f"{proof.proof_id}: {proof.tool} ({proof.latency_ms:.0f}ms)")
 ```
 
-See the [demo script](./examples/python/authority_middleware_demo.py).
+See [`examples/python/authority_middleware_demo.py`](./examples/python/authority_middleware_demo.py) and the offline cross-org demo at [`examples/python/cross_org_authority/`](./examples/python/cross_org_authority/).
 
-#### Agent private key
+To provision an agent + delegation in the portal, see [the agent provisioning runbook](./docs/agent-provisioning.md).
+
+### Agent private key
 
 Every authority request is signed with an RS256 JWS proving the request originated from the agent that owns the DID. The Nuggets backend verifies the signature against the agent's registered OIDC public key.
 
-Generate the keypair via the Nuggets accounts portal during agent registration; the portal returns the private key for you to download. Pass it to `MiddlewareConfig.agent_private_key` in any of these forms:
+The accounts portal generates the keypair at agent creation and lets you download the private key as a JWKS file. `MiddlewareConfig.agent_private_key` accepts:
+
+- A filesystem path to a PEM, JWK JSON, or JWKS JSON file
+- A raw PEM string
+- A JWK or JWKS dict
 
 ```python
-# PEM string
+config = MiddlewareConfig(..., agent_private_key="/secrets/agent-jwks.json")
 config = MiddlewareConfig(..., agent_private_key=open("agent.pem").read())
-
-# File path
-config = MiddlewareConfig(..., agent_private_key="/path/to/agent.pem")
-
-# JWK dict
-config = MiddlewareConfig(..., agent_private_key={"kty": "RSA", "n": "...", "e": "AQAB", "d": "..."})
+config = MiddlewareConfig(..., agent_private_key={"kty": "RSA", ...})
 ```
 
-Currently only RS256 is supported (matches the portal-generated keypair format). Ed25519 is planned. The key is not transmitted; only the signed JWS is sent.
+Only RS256 is supported today (matches portal-generated keys). The key is never transmitted; only the signed JWS is sent.
 
-#### Test mode
+### Test mode
 
-Pass `test_mode=True` to run the middleware without a live Nuggets backend. Every authority check returns `ALLOW`, no HTTP request is made, and the emitted proof artifact is flagged `test_mode=True` with `authority_signature="test-mode-unverifiable"`. Test-mode proofs will not validate against production keys.
+Pass `test_mode=True` to short-circuit the live auth flow during local development. Every authority check returns `ALLOW`, no HTTP is made, and the emitted proof artifact carries `test_mode=True` with `authority_signature="test-mode-unverifiable"`. Test-mode proofs do not validate against production keys.
 
 ```python
 config = MiddlewareConfig(
@@ -149,125 +78,46 @@ config = MiddlewareConfig(
 )
 ```
 
-## Tools
+## LangGraph Platform OIDC auth
 
-### KYC (Know Your Customer)
-
-| Tool | Description |
-|------|-------------|
-| `initiate_kyc_verification` | Start identity verification (returns deeplink/QR) |
-| `check_kyc_status` | Check verification completion status |
-| `verify_age` | Selective disclosure — prove minimum age without revealing DOB |
-| `verify_credential` | Verify a specific credential with selective disclosure |
-
-### KYA (Know Your Agent)
-
-| Tool | Description |
-|------|-------------|
-| `register_agent_identity` | Register AI agent identity with provenance signals |
-| `verify_agent_identity` | Verify another agent's identity |
-| `get_agent_trust_score` | Get trust score and provenance signals (0–1) |
-
-### Credential & Auth
-
-| Tool | Description |
-|------|-------------|
-| `request_credential_presentation` | Ask user to present verifiable credentials |
-| `verify_presentation` | Cryptographically verify presented credentials |
-| `initiate_oauth_flow` | Start OAuth/OIDC flow with Nuggets as IdP |
-| `check_auth_status` | Check user authentication and verification status |
-
-## Examples
-
-| Example | JS | Python | Description |
-|---------|:--:|:------:|-------------|
-| Basic KYC Agent | [link](./examples/js/basic-kyc-agent.ts) | [link](./examples/python/basic_kyc_agent.py) | Start KYC verification and check status |
-| Multi-Agent Trust | [link](./examples/js/multi-agent-trust.ts) | [link](./examples/python/multi_agent_trust.py) | Register, verify, and score agent identities |
-| Selective Disclosure | [link](./examples/js/selective-disclosure.ts) | [link](./examples/python/selective_disclosure.py) | Age verification and credential presentation |
-| LangGraph Auth | — | [link](./examples/python/langgraph_auth_agent/) | Deployed agent with Nuggets OIDC auth |
-| Authority Middleware | — | [link](./examples/python/authority_middleware_demo.py) | Pre-execution trust enforcement with proof artifacts |
-
-## Configuration
-
-All packages read configuration from environment variables:
-
-| Variable | Description |
-|----------|-------------|
-| `NUGGETS_API_URL` | Nuggets API endpoint |
-| `NUGGETS_PARTNER_ID` | Partner ID from Nuggets portal |
-| `NUGGETS_PARTNER_SECRET` | Partner secret key |
-| `NUGGETS_OIDC_ISSUER_URL` | OIDC issuer URL (LangGraph auth only) |
-
-
-## Self-Hosted Deployment
-
-All packages work with self-hosted Nuggets instances — point the environment variables to your infrastructure:
-
-```bash
-NUGGETS_API_URL=https://nuggets.internal.example.com/api
-NUGGETS_OIDC_ISSUER_URL=https://nuggets.internal.example.com/oidc
-NUGGETS_PARTNER_ID=your-partner-id
-NUGGETS_PARTNER_SECRET=your-partner-secret
-```
-
-### Custom CA Certificates (Python)
-
-If your instance uses a private CA, pass `ca_cert` to any constructor:
+Plug Nuggets OIDC into a deployed LangGraph agent so incoming user requests are authenticated against your Nuggets identity provider.
 
 ```python
-from langchain_nuggets import NuggetsToolkit
+from langchain_nuggets.langgraph import NuggetsAuth
 
-toolkit = NuggetsToolkit(
-    api_url="https://nuggets.internal.example.com/api",
-    partner_id="your-partner-id",
-    partner_secret="your-secret",
+nuggets = NuggetsAuth(issuer_url="https://auth.nuggets.life")
+auth = nuggets.auth  # pass to langgraph.json
+```
+
+Pre-built authorization helpers:
+
+```python
+from langchain_nuggets.langgraph import require_scopes, ownership_filter
+```
+
+`require_scopes("email", "profile")` rejects requests missing the given OIDC scopes; `ownership_filter()` enforces per-user resource ownership on create/read/search.
+
+## Self-hosted / private CA
+
+Point the backend URLs at your own deployment and pass `ca_cert` to either constructor:
+
+```python
+config = MiddlewareConfig(
+    api_url="https://nuggets.internal.example.com",
+    oidc_issuer_url="https://oidc.internal.example.com",
+    # ...
+    ca_cert="/etc/ssl/private-ca/nuggets-ca.pem",
+)
+
+nuggets_auth = NuggetsAuth(
+    issuer_url="https://oidc.internal.example.com",
     ca_cert="/etc/ssl/private-ca/nuggets-ca.pem",
 )
 ```
 
-The same `ca_cert` and `verify_ssl` parameters are available on `NuggetsAuth`, `NuggetsAuthorityMiddleware`, and `NuggetsApiClient`.
+Set `verify_ssl=False` to disable TLS verification (development only).
 
-To disable TLS verification entirely (development only):
-
-```python
-toolkit = NuggetsToolkit(..., verify_ssl=False)
-```
-
-### Custom CA Certificates (JS / MCP Server)
-
-The JS toolkit uses the native `fetch` API. Trust a private CA via Node.js's built-in mechanism:
-
-```bash
-NODE_EXTRA_CA_CERTS=/etc/ssl/private-ca/nuggets-ca.pem node your-agent.js
-```
-
-For the MCP server in Claude Desktop config:
-
-```json
-{
-  "mcpServers": {
-    "nuggets": {
-      "command": "npx",
-      "args": ["@nuggetslife/mcp-server"],
-      "env": {
-        "NUGGETS_API_URL": "https://nuggets.internal.example.com/api",
-        "NUGGETS_PARTNER_ID": "your-partner-id",
-        "NUGGETS_PARTNER_SECRET": "your-secret",
-        "NODE_EXTRA_CA_CERTS": "/etc/ssl/private-ca/nuggets-ca.pem"
-      }
-    }
-  }
-}
-```
 ## Development
-
-```bash
-pnpm install
-pnpm build
-pnpm test
-```
-
-Python tests:
 
 ```bash
 cd packages/python
@@ -277,21 +127,21 @@ pytest
 
 ### End-to-end smoke test against a live backend
 
-To verify the SDK works against a real Nuggets backend (dev / staging / prod), pre-create a delegation with your test tool in `allowed_capabilities`, then run from the repo root:
+Pre-create a delegation with your test tool in `allowed_capabilities`, then run from the repo root:
 
 ```bash
 export NUGGETS_AUTHORITY_URL="https://accounts-dev.internal-nuggets.life"
 export NUGGETS_OIDC_ISSUER_URL="https://auth-dev.internal-nuggets.life"
 export NUGGETS_AGENT_ID="did:web:auth-dev.internal-nuggets.life:..."
-export NUGGETS_CONTROLLER_ID="did:nuggets:oidc:..."
+export NUGGETS_CONTROLLER_ID="did:web:auth-dev.internal-nuggets.life:..."
 export NUGGETS_DELEGATION_ID="42"
-export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-private-key.pem"
-export NUGGETS_TOOL="check_kyc_status"  # must be in delegation capabilities
+export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"
+export NUGGETS_TOOL="your_tool_name"   # any capability listed in the delegation's allowed_capabilities
 
 python scripts/smoke_test_authority.py
 ```
 
-Exits 0 when the backend returns `ALLOW` and a proof artifact is emitted; non-zero on `DENY`, `ERROR`, or network failure. The script does not cryptographically verify the returned signature — that's a separate step against the backend's JWKS endpoint.
+Exits 0 when the backend returns `ALLOW` and a proof artifact is emitted. See [`scripts/demo_deployed_scenarios.py`](./scripts/demo_deployed_scenarios.py) for the full ALLOW + 5 DENY walkthrough.
 
 ## License
 

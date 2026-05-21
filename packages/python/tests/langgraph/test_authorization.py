@@ -6,38 +6,13 @@ from unittest.mock import MagicMock
 import pytest
 from langgraph_sdk.auth.exceptions import HTTPException
 
-from langchain_nuggets.langgraph.authorization import (
-    ownership_filter,
-    require_kyc,
-    require_scopes,
-)
+from langchain_nuggets.langgraph.authorization import ownership_filter, require_scopes
 
 
 def _make_ctx(user: dict) -> MagicMock:
     ctx = MagicMock()
     ctx.user = user
     return ctx
-
-
-@pytest.mark.asyncio
-async def test_require_kyc_blocks_unverified():
-    handler = require_kyc()
-    ctx = _make_ctx({"identity": "user-1", "kyc_verified": False})
-
-    with pytest.raises(HTTPException) as exc_info:
-        await handler(ctx, {})
-
-    assert exc_info.value.status_code == 403
-    assert "KYC" in exc_info.value.detail
-
-
-@pytest.mark.asyncio
-async def test_require_kyc_allows_verified():
-    handler = require_kyc()
-    ctx = _make_ctx({"identity": "user-1", "kyc_verified": True})
-
-    result = await handler(ctx, {"some": "data"})
-    assert result == {"some": "data"}
 
 
 @pytest.mark.asyncio

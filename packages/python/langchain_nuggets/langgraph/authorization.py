@@ -4,36 +4,6 @@ from __future__ import annotations
 from typing import Any, Callable
 
 
-def require_kyc() -> Callable:
-    """Create an authorization handler that requires KYC verification.
-
-    Rejects any request where the authenticated user does not have
-    ``kyc_verified=True`` in their user dict (set by NuggetsAuth during
-    authentication when the user's KYC status is confirmed).
-
-    Usage::
-
-        from langchain_nuggets.langgraph import require_kyc
-
-        @auth.on.threads.create
-        async def on_create(ctx, value):
-            return await require_kyc()(ctx, value)
-    """
-
-    async def handler(ctx: Any, value: Any) -> Any:
-        user = ctx.user if hasattr(ctx, "user") else ctx
-        if not _get_user_field(user, "kyc_verified"):
-            from langgraph_sdk.auth.exceptions import HTTPException
-
-            raise HTTPException(
-                status_code=403,
-                detail="KYC verification required for this operation",
-            )
-        return value
-
-    return handler
-
-
 def require_scopes(*scopes: str) -> Callable:
     """Create an authorization handler that requires specific OIDC scopes.
 

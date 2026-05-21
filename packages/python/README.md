@@ -1,6 +1,8 @@
 # langchain-nuggets
 
-Nuggets identity verification toolkit for LangChain Python. Provides 11 ready-to-use tools for KYC, KYA, and credential verification that plug directly into any LangChain agent.
+Authority middleware for LangChain / LangGraph — pre-execution trust enforcement on every tool call.
+
+Wrap any `ToolNode` and the middleware calls the Nuggets authority endpoint before each tool executes. The backend evaluates a scoped delegation, returns an `ALLOW` or `DENY` decision, and signs an audit proof. Tools that aren't allowed never run.
 
 ## Installation
 
@@ -8,137 +10,23 @@ Nuggets identity verification toolkit for LangChain Python. Provides 11 ready-to
 pip install langchain-nuggets
 ```
 
-## Quick Start
+For LangGraph Platform OIDC auth:
 
-```python
-from langchain_nuggets import NuggetsToolkit
-
-# Config via env vars: NUGGETS_API_URL, NUGGETS_PARTNER_ID, NUGGETS_PARTNER_SECRET
-toolkit = NuggetsToolkit()
-tools = toolkit.get_tools()
-
-# Or pass config directly
-toolkit = NuggetsToolkit(
-    api_url="https://api.nuggets.life",
-    partner_id="your-partner-id",
-    partner_secret="your-secret",
-)
+```bash
+pip install langchain-nuggets[langgraph]
 ```
-
-## Tools
-
-### KYC (Know Your Customer)
-
-| Tool | Description |
-|------|-------------|
-| `initiate_kyc_verification` | Start identity verification flow, returns deeplink/QR for Nuggets app |
-| `check_kyc_status` | Poll verification session status (pending/completed/failed/expired) |
-| `verify_age` | Selective disclosure age proof without revealing date of birth |
-| `verify_credential` | Request specific credential (address, email, phone, nationality) |
-
-### KYA (Know Your Agent)
-
-| Tool | Description |
-|------|-------------|
-| `register_agent_identity` | Register AI agent identity with DID and provenance signals |
-| `verify_agent_identity` | Verify another agent's identity and provenance |
-| `get_agent_trust_score` | Get trust score (0-1) based on verified signals |
-
-### Auth & Credentials
-
-| Tool | Description |
-|------|-------------|
-| `request_credential_presentation` | Ask user to present verifiable credentials |
-| `verify_presentation` | Check presentation status and verify credentials |
-| `initiate_oauth_flow` | Start OAuth 2.0/OIDC flow with Nuggets as IdP |
-| `check_auth_status` | Check user's authentication and verification status |
-
-## Usage with LangChain Agent
-
-```python
-from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_nuggets import NuggetsToolkit
-
-toolkit = NuggetsToolkit()
-tools = toolkit.get_tools()
-
-llm = ChatOpenAI(model="gpt-4o", temperature=0)
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a helpful assistant that can verify user identities using Nuggets."),
-    ("human", "{input}"),
-    ("placeholder", "{agent_scratchpad}"),
-])
-
-agent = create_openai_tools_agent(llm, tools, prompt)
-executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
-
-result = executor.invoke({"input": "Verify alice@example.com"})
-```
-
-## Configuration
-
-| Parameter | Env Variable | Description |
-|-----------|-------------|-------------|
-| `api_url` | `NUGGETS_API_URL` | Nuggets API base URL |
-| `partner_id` | `NUGGETS_PARTNER_ID` | Your partner ID |
-| `partner_secret` | `NUGGETS_PARTNER_SECRET` | Your partner secret |
-
-
-## Self-Hosted Deployment
-
-All classes accept configurable URLs — point to your own Nuggets instance:
-
-```python
-toolkit = NuggetsToolkit(
-    api_url="https://nuggets.internal.example.com/api",
-    partner_id="your-partner-id",
-    partner_secret="your-secret",
-)
-```
-
-### Custom CA Certificates
-
-For self-hosted instances using a private CA:
-
-```python
-toolkit = NuggetsToolkit(
-    api_url="https://nuggets.internal.example.com/api",
-    partner_id="your-partner-id",
-    partner_secret="your-secret",
-    ca_cert="/etc/ssl/private-ca/nuggets-ca.pem",
-)
-```
-
-The `ca_cert` and `verify_ssl` parameters are also available on:
-- `NuggetsAuth(issuer_url=..., ca_cert=..., verify_ssl=...)`
-- `MiddlewareConfig(api_url=..., ca_cert=..., verify_ssl=...)`
-- `NuggetsApiClient({"api_url": ..., "ca_cert": ..., "verify_ssl": ...})`
-
-To disable TLS verification entirely (development/staging only):
-
-```python
-toolkit = NuggetsToolkit(..., verify_ssl=False)
-```
-
-## License
-
-MIT
 
 ## Authority Middleware
-
-Intercept every LangChain/LangGraph tool call with pre-execution trust enforcement. The middleware validates authority against the Nuggets control plane, blocks unauthorized actions, and emits cryptographic proof artifacts.
 
 ```python
 from langchain_nuggets.middleware import NuggetsAuthorityMiddleware, MiddlewareConfig
 from langgraph.prebuilt import ToolNode
 
 config = MiddlewareConfig(
-    api_url="https://accounts-dev.internal-nuggets.life",
-    oidc_issuer_url="https://auth-dev.internal-nuggets.life",
-    agent_id="did:web:auth-dev.internal-nuggets.life:<client_id>",
-    controller_id="did:web:auth-dev.internal-nuggets.life:<controller_id>",
+    api_url="https://accounts.nuggets.life",
+    oidc_issuer_url="https://auth.nuggets.life",
+    agent_id="did:web:auth.nuggets.life:your-agent-id",
+    controller_id="did:web:auth.nuggets.life:your-controller-id",
     delegation_id="42",
     agent_private_key="/secrets/agent-jwks.json",
 )
@@ -147,8 +35,7 @@ middleware = NuggetsAuthorityMiddleware(config)
 
 tool_node = ToolNode(
     tools=your_tools,
-    wrap_tool_call=middleware.wrap_tool_call,   # sync
-    # awrap_tool_call=middleware.awrap_tool_call,  # async
+    wrap_tool_call=middleware.wrap_tool_call,
 )
 ```
 
@@ -158,17 +45,56 @@ tool_node = ToolNode(
 
 | Behaviour | Detail |
 |-----------|--------|
-| **ALLOW** | Tool executes, proof artifact emitted |
-| **DENY** | Tool blocked, structured error returned |
+| **ALLOW** | Tool executes; cryptographic proof artifact emitted |
+| **DENY** | Tool blocked; structured error returned with `reason_code` |
 | **ERROR** | Fail closed — tool not executed |
 
 To provision the agent identity, private key, and delegation referenced above, see [the agent provisioning runbook](https://github.com/NuggetsLtd/langchain-nuggets/blob/main/docs/agent-provisioning.md).
 
-Access proof artifacts after execution:
+### Agent private key
+
+The accounts portal generates an RS256 keypair at agent creation and lets you download the private key as a JWKS file. `MiddlewareConfig.agent_private_key` accepts:
+
+- A filesystem path to a PEM, JWK JSON, or JWKS JSON file
+- A raw PEM string
+- A JWK or JWKS dict
+
+The key is never transmitted; only the signed `agent_proof` JWS is sent.
+
+### Test mode
+
+`test_mode=True` short-circuits the live auth flow during local development — every check returns `ALLOW`, no HTTP is made, and the emitted proof artifact is flagged as test-mode-unverifiable.
+
+## LangGraph Platform OIDC auth
 
 ```python
-for proof in middleware.proofs:
-    print(f"{proof.proof_id}: {proof.tool} latency={proof.latency_ms:.0f}ms")
+from langchain_nuggets.langgraph import NuggetsAuth
+
+nuggets = NuggetsAuth(issuer_url="https://auth.nuggets.life")
+auth = nuggets.auth  # pass to langgraph.json
 ```
 
-See the [demo script](../../examples/python/authority_middleware_demo.py) for a complete working example.
+Pre-built authorization helpers:
+
+```python
+from langchain_nuggets.langgraph import require_scopes, ownership_filter
+```
+
+## Self-hosted / private CA
+
+Point the URLs at your own deployment and pass `ca_cert` to either constructor:
+
+```python
+MiddlewareConfig(
+    api_url="https://nuggets.internal.example.com",
+    oidc_issuer_url="https://oidc.internal.example.com",
+    # ...
+    ca_cert="/etc/ssl/private-ca/nuggets-ca.pem",
+)
+```
+
+Set `verify_ssl=False` to disable TLS verification (development only).
+
+## License
+
+MIT
