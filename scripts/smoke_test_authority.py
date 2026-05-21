@@ -21,6 +21,8 @@ Usage:
     export NUGGETS_DELEGATION_ID="42"
     export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"  # or PEM
     export NUGGETS_TOOL="check_kyc_status"  # must be in delegation's capabilities
+    export NUGGETS_TARGET="kyc-service"     # optional; must match the
+                                            # delegation's allowed_targets when set
 
     python scripts/smoke_test_authority.py
 """

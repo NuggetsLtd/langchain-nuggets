@@ -33,9 +33,16 @@ def _extract_oidc_client_id(agent_did: str) -> str:
     """Extract the OIDC client_id from an agent DID.
 
     Agents are registered with the Nuggets OIDC provider using the bare
-    identifier (the last segment of the DID), not the full DID. Mirrors
-    the backend's extractClientId() logic in
-    apps/oauth-accounts/src/app/api/authority/evaluate/route.ts.
+    identifier (the last segment of the DID), not the full DID, so
+    that's what we use as iss/sub in the client_assertion JWT.
+
+    - ``did:nuggets:oidc:<id>`` → ``<id>``
+    - ``did:web:<host>:<...>:<id>`` (>=4 segments) → ``<id>``
+    - anything else → returned unchanged (assume already a bare id)
+
+    This mirrors the backend's verification logic in the partner repo
+    (``extractClientId`` in the authority evaluate route). When changing
+    either side, keep them in lockstep.
     """
     if agent_did.startswith("did:nuggets:oidc:"):
         return agent_did[len("did:nuggets:oidc:"):]

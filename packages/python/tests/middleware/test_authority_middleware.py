@@ -96,6 +96,40 @@ def mock_async_handler():
     return handler
 
 
+class TestExtractOidcClientId:
+    def test_strips_did_nuggets_oidc_prefix(self):
+        from langchain_nuggets.middleware.authority_middleware import _extract_oidc_client_id
+
+        assert _extract_oidc_client_id("did:nuggets:oidc:sUn1Fcj") == "sUn1Fcj"
+
+    def test_returns_last_segment_of_did_web(self):
+        from langchain_nuggets.middleware.authority_middleware import _extract_oidc_client_id
+
+        did = "did:web:auth-dev.internal-nuggets.life:WhWeJ30e5"
+        assert _extract_oidc_client_id(did) == "WhWeJ30e5"
+
+    def test_did_web_with_path_segments(self):
+        from langchain_nuggets.middleware.authority_middleware import _extract_oidc_client_id
+
+        did = "did:web:auth.nuggets.life:agents:org-1:WhWeJ30e5"
+        assert _extract_oidc_client_id(did) == "WhWeJ30e5"
+
+    def test_did_web_too_short_returns_unchanged(self):
+        from langchain_nuggets.middleware.authority_middleware import _extract_oidc_client_id
+
+        assert _extract_oidc_client_id("did:web:example.com") == "did:web:example.com"
+
+    def test_bare_id_returned_unchanged(self):
+        from langchain_nuggets.middleware.authority_middleware import _extract_oidc_client_id
+
+        assert _extract_oidc_client_id("WhWeJ30e5") == "WhWeJ30e5"
+
+    def test_unknown_did_method_returned_unchanged(self):
+        from langchain_nuggets.middleware.authority_middleware import _extract_oidc_client_id
+
+        assert _extract_oidc_client_id("did:key:abc123") == "did:key:abc123"
+
+
 class TestConstruction:
     def test_create_middleware(self, config):
         middleware = NuggetsAuthorityMiddleware(config)
