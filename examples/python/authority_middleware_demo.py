@@ -28,17 +28,31 @@ def main() -> None:
     # --- Setup ---
     collected_proofs: list[ProofArtifact] = []
 
-    # test_mode=True short-circuits the OIDC bearer + agent_proof signing
-    # path so the demo can run without a deployed backend or real keypair.
-    # Every authority call returns ALLOW with a test-mode-only proof —
-    # see scripts/smoke_test_authority.py for real-backend verification.
+    # Use an ephemeral key so MiddlewareConfig validation passes; the OIDC
+    # client is replaced with a MagicMock below so the demo doesn't actually
+    # hit a network. test_mode would short-circuit to ALLOW and defeat the
+    # DENY / ERROR scenarios — see comment on PR #13.
+    from cryptography.hazmat.primitives import serialization as _ser
+    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+    _demo_key_pem = (
+        _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        .private_bytes(
+            encoding=_ser.Encoding.PEM,
+            format=_ser.PrivateFormat.PKCS8,
+            encryption_algorithm=_ser.NoEncryption(),
+        )
+        .decode("utf-8")
+    )
+
     config = MiddlewareConfig(
         api_url="https://api.nuggets.example",
+        oidc_issuer_url="https://auth.nuggets.example",
         agent_id="did:web:auth.nuggets.example:agent-demo-001",
         controller_id="did:web:auth.nuggets.example:org-acme",
         delegation_id="42",
+        agent_private_key=_demo_key_pem,
         on_proof=lambda proof: collected_proofs.append(proof),
-        test_mode=True,
     )
 
     middleware = NuggetsAuthorityMiddleware(config)

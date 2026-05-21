@@ -129,29 +129,17 @@ def run():
     print(f"  Cap:          3 invocations")
     print(f"  Expires:      {delegation['expires_at']}")
 
-    # Create middleware pointing at the local FastAPI mock authority.
-    # The mock does not verify agent_proof, so any ephemeral key works
-    # — but MiddlewareConfig still validates that the key is well-formed,
-    # so we generate one inline rather than mocking the validator.
-    from cryptography.hazmat.primitives import serialization as _ser
-    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
-
-    _demo_key_pem = (
-        _rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        .private_bytes(
-            encoding=_ser.Encoding.PEM,
-            format=_ser.PrivateFormat.PKCS8,
-            encryption_algorithm=_ser.NoEncryption(),
-        )
-        .decode("utf-8")
-    )
-
+    # test_mode short-circuits the real auth flow so the demo can construct
+    # without an OIDC issuer or keypair. This is a known limitation — the
+    # demo no longer hits the FastAPI mock under test_mode, so all scenarios
+    # below return ALLOW regardless of what the mock would have decided.
+    # Follow-up PR adds an OIDC token endpoint to the mock and restores
+    # end-to-end behaviour.
     config = MiddlewareConfig(
         api_url=AUTHORITY_URL,
         agent_id=AGENT_B["did"],
         controller_id=ORG_B["id"],
         delegation_id="del-001",
-        agent_private_key=_demo_key_pem,
         test_mode=True,
     )
     middleware = NuggetsAuthorityMiddleware(config)
