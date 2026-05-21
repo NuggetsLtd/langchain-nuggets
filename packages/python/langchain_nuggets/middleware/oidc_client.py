@@ -10,12 +10,15 @@ and client_id claims against its registered JWKS.
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from typing import Any, Dict, Optional, Union
 
 import httpx
 import jwt
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_SCOPE = "authority.evaluate"
 _DEFAULT_ASSERTION_TTL_SECONDS = 300
@@ -77,11 +80,22 @@ class OidcClientCredentialsClient:
         return self._token["expires_at"] > time.time() + _REFRESH_BEFORE_EXPIRY_SECONDS
 
     def _store_token(self, response_body: Dict[str, Any]) -> str:
+        access_token = response_body.get("access_token")
+        if not isinstance(access_token, str) or not access_token:
+            raise OidcTokenError(
+                "token endpoint response missing 'access_token' string", 200
+            )
+        try:
+            expires_in = int(response_body.get("expires_in", 3600))
+        except (TypeError, ValueError) as exc:
+            raise OidcTokenError(
+                "token endpoint response has invalid 'expires_in' value", 200
+            ) from exc
         self._token = {
-            "access_token": response_body["access_token"],
-            "expires_at": time.time() + int(response_body.get("expires_in", 3600)),
+            "access_token": access_token,
+            "expires_at": time.time() + expires_in,
         }
-        return self._token["access_token"]
+        return access_token
 
     def _token_request_form(self) -> Dict[str, str]:
         return {
@@ -101,29 +115,23 @@ class OidcClientCredentialsClient:
             self._async_client = httpx.AsyncClient(verify=self._verify)
         return self._async_client
 
+    def _handle_token_response(self, response: httpx.Response) -> str:
+        body = _decode_token_endpoint_response(response)
+        return self._store_token(body)
+
     def get_access_token(self) -> str:
         if self._token_is_fresh():
             return self._token["access_token"]  # type: ignore[index]
         client = self._get_sync_client()
         response = client.post(self._token_endpoint, data=self._token_request_form())
-        if response.status_code >= 400:
-            raise OidcTokenError(
-                f"token exchange failed: {response.status_code} {response.text}",
-                response.status_code,
-            )
-        return self._store_token(response.json())
+        return self._handle_token_response(response)
 
     async def aget_access_token(self) -> str:
         if self._token_is_fresh():
             return self._token["access_token"]  # type: ignore[index]
         client = await self._get_async_client()
         response = await client.post(self._token_endpoint, data=self._token_request_form())
-        if response.status_code >= 400:
-            raise OidcTokenError(
-                f"token exchange failed: {response.status_code} {response.text}",
-                response.status_code,
-            )
-        return self._store_token(response.json())
+        return self._handle_token_response(response)
 
     def post(
         self,
@@ -171,6 +179,41 @@ class OidcTokenError(Exception):
 
 
 _RESERVED_HEADERS = frozenset({"authorization", "content-type"})
+
+
+def _decode_token_endpoint_response(response: httpx.Response) -> Dict[str, Any]:
+    """Decode a token endpoint response, raising OidcTokenError on any
+    upstream issue. Never includes raw response body in the surfaced
+    message — the body is logged separately so it isn't leaked into
+    error traces returned to tool callers."""
+    if response.status_code >= 400:
+        error_code = "unknown_error"
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                error_code = body.get("error", "unknown_error")
+        except Exception:
+            pass
+        logger.warning(
+            "OIDC token exchange failed (status=%s, body=%s)",
+            response.status_code,
+            response.text[:500],
+        )
+        raise OidcTokenError(
+            f"OIDC token exchange failed (status {response.status_code}, error={error_code})",
+            response.status_code,
+        )
+    try:
+        return response.json()
+    except Exception as exc:
+        logger.warning(
+            "OIDC token exchange returned non-JSON 2xx response: %s",
+            response.text[:500],
+        )
+        raise OidcTokenError(
+            "OIDC token endpoint returned a non-JSON response",
+            response.status_code,
+        ) from exc
 
 
 def _merge_headers(token: str, extra: Optional[Dict[str, str]]) -> Dict[str, str]:

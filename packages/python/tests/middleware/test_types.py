@@ -38,7 +38,7 @@ class TestMiddlewareConfig:
         with pytest.raises(ValidationError):
             MiddlewareConfig(
                 api_url="https://api.nuggets.test",
-                # missing partner_secret, agent_id, etc.
+                # missing agent_id, controller_id, delegation_id, etc.
             )
 
 

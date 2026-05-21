@@ -56,9 +56,17 @@ class NuggetsAuthorityMiddleware:
             else None
         )
         self._client: Optional[OidcClientCredentialsClient]
-        if not config.test_mode:
-            assert self._agent_private_key_pem is not None
-            assert config.oidc_issuer_url is not None
+        if config.test_mode:
+            self._client = None
+        else:
+            # MiddlewareConfig validators guarantee both are set when
+            # test_mode is False. Defensive check in case the validators
+            # ever drift.
+            if self._agent_private_key_pem is None or config.oidc_issuer_url is None:
+                raise RuntimeError(
+                    "agent_private_key and oidc_issuer_url are required when "
+                    "test_mode is False (MiddlewareConfig validator should have caught this)"
+                )
             self._client = OidcClientCredentialsClient(
                 issuer_url=config.oidc_issuer_url,
                 client_id=config.agent_id,
@@ -67,8 +75,6 @@ class NuggetsAuthorityMiddleware:
                 verify_ssl=config.verify_ssl,
                 ca_cert=config.ca_cert,
             )
-        else:
-            self._client = None
 
     @property
     def proofs(self) -> List[ProofArtifact]:
@@ -173,7 +179,8 @@ class NuggetsAuthorityMiddleware:
                     self._config.agent_id,
                     eval_request.action.nonce,
                 )
-                assert self._client is not None
+                if self._client is None:
+                    raise RuntimeError("OIDC client unavailable in non-test-mode middleware")
                 raw_response = self._client.post(
                     f"{self._config.api_url.rstrip('/')}{self._config.authority_endpoint}",
                     payload,
@@ -250,7 +257,8 @@ class NuggetsAuthorityMiddleware:
                     self._config.agent_id,
                     eval_request.action.nonce,
                 )
-                assert self._client is not None
+                if self._client is None:
+                    raise RuntimeError("OIDC client unavailable in non-test-mode middleware")
                 raw_response = await self._client.apost(
                     f"{self._config.api_url.rstrip('/')}{self._config.authority_endpoint}",
                     payload,

@@ -110,6 +110,35 @@ class TestTokenExchange:
         with pytest.raises(OidcTokenError) as exc_info:
             client.get_access_token()
         assert exc_info.value.status_code == 401
+        # error message includes OAuth error code but not raw body
+        assert "invalid_client" in str(exc_info.value)
+
+    @respx.mock
+    def test_token_endpoint_error_message_excludes_raw_body(self, client):
+        respx.post("https://auth.test/token").mock(
+            return_value=Response(500, text="<html>internal server secret leak</html>")
+        )
+        with pytest.raises(OidcTokenError) as exc_info:
+            client.get_access_token()
+        assert "internal server secret leak" not in str(exc_info.value)
+        assert exc_info.value.status_code == 500
+
+    @respx.mock
+    def test_malformed_response_raises_oidc_token_error(self, client):
+        respx.post("https://auth.test/token").mock(
+            return_value=Response(200, text="not-json")
+        )
+        with pytest.raises(OidcTokenError):
+            client.get_access_token()
+
+    @respx.mock
+    def test_missing_access_token_raises_oidc_token_error(self, client):
+        respx.post("https://auth.test/token").mock(
+            return_value=Response(200, json={"expires_in": 3600})
+        )
+        with pytest.raises(OidcTokenError) as exc_info:
+            client.get_access_token()
+        assert "access_token" in str(exc_info.value)
 
 
 class TestAuthenticatedPost:

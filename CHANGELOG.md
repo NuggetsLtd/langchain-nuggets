@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.3.0]
+
 ### Added
 
 - `oidc_issuer_url` field on `MiddlewareConfig` — URL of the Nuggets OIDC provider that mints access tokens for `/api/authority/evaluate`. Required when `test_mode=False`.
@@ -14,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Changed
 
-- **Breaking**: removed `partner_id` and `partner_secret` from `MiddlewareConfig`. The middleware no longer calls `/partner/auth` — that endpoint never existed on the deployed Nuggets backend. Bumps to `0.3.0`.
+- **Breaking**: removed `partner_id` and `partner_secret` from `MiddlewareConfig`. The middleware no longer calls `/partner/auth` — that endpoint never existed on the deployed Nuggets backend.
 - **Breaking**: HTTP auth on `/api/authority/evaluate` is now an OIDC access token in `Authorization: Bearer <token>`. The token is verified by the backend against the OIDC provider's JWKS. The agent's existing private key is reused to sign the `private_key_jwt` client assertion (no new credentials).
 
 ## [0.2.0]
