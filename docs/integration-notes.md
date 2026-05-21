@@ -18,20 +18,22 @@ tool_node = ToolNode(
 )
 ```
 
-Plus the config setup (~8 lines, done once):
+Plus the config setup (~9 lines, done once):
 
 ```python
 config = MiddlewareConfig(
-    api_url="https://api.nuggets.life",
-    partner_id="...",
-    partner_secret="...",
-    agent_id="...",
-    controller_id="...",
-    delegation_id="...",
+    api_url="https://accounts.nuggets.life",
+    oidc_issuer_url="https://auth.nuggets.life",
+    agent_id="did:web:auth.nuggets.life:<client_id>",
+    controller_id="did:web:auth.nuggets.life:<controller_id>",
+    delegation_id="42",
+    agent_private_key="/secrets/agent-jwks.json",
 )
 ```
 
-**Total: ~11 lines to integrate** into an existing LangGraph agent.
+**Total: ~12 lines to integrate** into an existing LangGraph agent. See
+[`agent-provisioning.md`](agent-provisioning.md) for where each value
+comes from.
 
 ## What Changes, What Doesn't
 
@@ -42,7 +44,7 @@ config = MiddlewareConfig(
 | Agent logic | No | Agent graph is unchanged |
 | ToolNode creation | Yes | Add `wrap_tool_call` parameter |
 | New dependency | No | Uses existing `langchain-nuggets` package |
-| New config | Yes | `MiddlewareConfig` with 6 required fields |
+| New config | Yes | `MiddlewareConfig` with 6 required fields (`api_url`, `oidc_issuer_url`, `agent_id`, `controller_id`, `delegation_id`, `agent_private_key`) |
 
 ## Interception Mechanism
 

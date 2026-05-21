@@ -28,14 +28,17 @@ def main() -> None:
     # --- Setup ---
     collected_proofs: list[ProofArtifact] = []
 
+    # test_mode=True short-circuits the OIDC bearer + agent_proof signing
+    # path so the demo can run without a deployed backend or real keypair.
+    # Every authority call returns ALLOW with a test-mode-only proof —
+    # see scripts/smoke_test_authority.py for real-backend verification.
     config = MiddlewareConfig(
         api_url="https://api.nuggets.example",
-        partner_id="partner-demo",
-        partner_secret="secret-demo",
-        agent_id="agent-demo-001",
-        controller_id="org-acme",
-        delegation_id="del-finance-2026",
+        agent_id="did:web:auth.nuggets.example:agent-demo-001",
+        controller_id="did:web:auth.nuggets.example:org-acme",
+        delegation_id="42",
         on_proof=lambda proof: collected_proofs.append(proof),
+        test_mode=True,
     )
 
     middleware = NuggetsAuthorityMiddleware(config)
@@ -153,12 +156,12 @@ def main() -> None:
     from langchain_nuggets.middleware import NuggetsAuthorityMiddleware, MiddlewareConfig
 
     config = MiddlewareConfig(
-        api_url="https://api.nuggets.life",
-        partner_id="your-partner-id",
-        partner_secret="your-partner-secret",
-        agent_id="agent-001",
-        controller_id="org-001",
-        delegation_id="del-001",
+        api_url="https://accounts.nuggets.life",
+        oidc_issuer_url="https://auth.nuggets.life",
+        agent_id="did:web:auth.nuggets.life:<client_id>",
+        controller_id="did:web:auth.nuggets.life:<controller_id>",
+        delegation_id="42",
+        agent_private_key="/secrets/agent-jwks.json",
     )
 
     middleware = NuggetsAuthorityMiddleware(config)

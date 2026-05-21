@@ -14,19 +14,30 @@ import statistics
 import time
 from unittest.mock import AsyncMock, MagicMock
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from langchain_core.messages import ToolMessage
 
 from langchain_nuggets.middleware import MiddlewareConfig, NuggetsAuthorityMiddleware
 
 
+def _generate_bench_key_pem() -> str:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+
+
 def create_middleware() -> NuggetsAuthorityMiddleware:
     config = MiddlewareConfig(
         api_url="https://api.nuggets.test",
-        partner_id="bench-partner",
-        partner_secret="bench-secret",
-        agent_id="agent-bench",
-        controller_id="org-bench",
-        delegation_id="del-bench",
+        oidc_issuer_url="https://auth.nuggets.test",
+        agent_id="did:web:auth.nuggets.test:agent-bench",
+        controller_id="did:web:auth.nuggets.test:controller-bench",
+        delegation_id="42",
+        agent_private_key=_generate_bench_key_pem(),
     )
     middleware = NuggetsAuthorityMiddleware(config)
     # Mock the HTTP client to isolate middleware overhead

@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Cross-Org Authority Demo — Nuggets Execution-Layer MVP
+"""Cross-Org Authority Demo — shape-only sanity check.
+
+> **Status: known-broken end-to-end.** The middleware now requires an
+> OIDC bearer + signed agent_proof; the local FastAPI mock in
+> `local_authority.py` does not speak OIDC and cannot satisfy real auth.
+> Running this script with `test_mode=True` keeps the SDK happy but
+> short-circuits every scenario to ALLOW — the ALLOW/DENY/cap/expiry
+> distinctions below no longer reflect real backend behaviour.
+>
+> Tracking fix in GitHub issues (search "cross_org_authority demo").
+> For real end-to-end verification use `scripts/smoke_test_authority.py`
+> against a deployed environment instead — see `docs/agent-provisioning.md`.
 
 Demonstrates all six trust primitives:
   1. Actor Identity       — agent DID verification
@@ -9,7 +20,7 @@ Demonstrates all six trust primitives:
   5. Consent              — revocation immediately blocks execution
   6. Accountability       — portable, independently verifiable proof
 
-Scenarios:
+Scenarios (currently all return ALLOW under test_mode):
   1. ALLOW      — in-scope tool call
   2. DENY       — out-of-scope tool
   3. DENY       — cap exceeded
@@ -118,14 +129,30 @@ def run():
     print(f"  Cap:          3 invocations")
     print(f"  Expires:      {delegation['expires_at']}")
 
-    # Create middleware pointing at local authority
+    # Create middleware pointing at the local FastAPI mock authority.
+    # The mock does not verify agent_proof, so any ephemeral key works
+    # — but MiddlewareConfig still validates that the key is well-formed,
+    # so we generate one inline rather than mocking the validator.
+    from cryptography.hazmat.primitives import serialization as _ser
+    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+    _demo_key_pem = (
+        _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        .private_bytes(
+            encoding=_ser.Encoding.PEM,
+            format=_ser.PrivateFormat.PKCS8,
+            encryption_algorithm=_ser.NoEncryption(),
+        )
+        .decode("utf-8")
+    )
+
     config = MiddlewareConfig(
         api_url=AUTHORITY_URL,
-        partner_id="demo-partner",
-        partner_secret="demo-secret",
         agent_id=AGENT_B["did"],
         controller_id=ORG_B["id"],
         delegation_id="del-001",
+        agent_private_key=_demo_key_pem,
+        test_mode=True,
     )
     middleware = NuggetsAuthorityMiddleware(config)
 
