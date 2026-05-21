@@ -21,11 +21,13 @@ Setup (one-time, in the dev accounts portal)
 2. Create FOUR delegations granting access to the agent (AI →
    Delegations → Allow Agent):
 
-   (a) NORMAL — capabilities=[check_kyc_status], targets=[kyc-service],
-       max_calls=10, no expiry.
+   (a) NORMAL — capabilities=[$NUGGETS_TOOL], targets=[$NUGGETS_TARGET],
+       max_calls=10, no expiry. The tool/target values are arbitrary
+       capability strings you choose to match your own application;
+       there are no built-in tool names in this package.
        → set as NUGGETS_DELEGATION_ID
 
-   (b) CAP — capabilities=[check_kyc_status], targets=[kyc-service],
+   (b) CAP — capabilities=[$NUGGETS_TOOL], targets=[$NUGGETS_TARGET],
        max_calls=1, no expiry. The demo will consume this one's only
        allowance during scenario 4, so the next call fails with
        CAP_EXCEEDED_INVOCATIONS.
@@ -60,11 +62,14 @@ Required:
     NUGGETS_DELEGATION_ID_EXPIRED  delegation (c)
     NUGGETS_DELEGATION_ID_REVOKED  delegation (d)
 
+Required (any string values you control — they're arbitrary identifiers
+the SDK passes through, not built-in tool names):
+    NUGGETS_TOOL                   capability granted by delegation (a)
+    NUGGETS_TARGET                 target granted by delegation (a)
+    NUGGETS_OUT_OF_SCOPE_TOOL      a capability NOT in the delegation
+    NUGGETS_OUT_OF_SCOPE_TARGET    a target NOT in the delegation
+
 Optional:
-    NUGGETS_TOOL                   default check_kyc_status
-    NUGGETS_TARGET                 default kyc-service
-    NUGGETS_OUT_OF_SCOPE_TOOL      default initiate_payment (for DENY scenario)
-    NUGGETS_OUT_OF_SCOPE_TARGET    default unknown-service (for DENY scenario)
     NUGGETS_DEMO_AUTO              set to "1" to skip the press-enter pauses
 """
 from __future__ import annotations
@@ -93,6 +98,10 @@ REQUIRED_ENV = [
     "NUGGETS_DELEGATION_ID_CAP",
     "NUGGETS_DELEGATION_ID_EXPIRED",
     "NUGGETS_DELEGATION_ID_REVOKED",
+    "NUGGETS_TOOL",
+    "NUGGETS_TARGET",
+    "NUGGETS_OUT_OF_SCOPE_TOOL",
+    "NUGGETS_OUT_OF_SCOPE_TARGET",
 ]
 
 
@@ -280,10 +289,10 @@ def main() -> None:
     if missing:
         fail(f"missing env vars: {', '.join(missing)}")
 
-    tool = os.environ.get("NUGGETS_TOOL", "check_kyc_status")
-    target = os.environ.get("NUGGETS_TARGET", "kyc-service")
-    out_of_scope_tool = os.environ.get("NUGGETS_OUT_OF_SCOPE_TOOL", "initiate_payment")
-    out_of_scope_target = os.environ.get("NUGGETS_OUT_OF_SCOPE_TARGET", "unknown-service")
+    tool = os.environ["NUGGETS_TOOL"]
+    target = os.environ["NUGGETS_TARGET"]
+    out_of_scope_tool = os.environ["NUGGETS_OUT_OF_SCOPE_TOOL"]
+    out_of_scope_target = os.environ["NUGGETS_OUT_OF_SCOPE_TARGET"]
 
     banner("Nuggets Authority — Cross-Org Demo (deployed backend)")
     print(f"  authority   = {os.environ['NUGGETS_AUTHORITY_URL']}")
