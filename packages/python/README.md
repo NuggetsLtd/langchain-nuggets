@@ -162,7 +162,7 @@ tool_node = ToolNode(
 | **DENY** | Tool blocked, structured error returned |
 | **ERROR** | Fail closed — tool not executed |
 
-To provision the agent identity, private key, and delegation referenced above, see [`docs/agent-provisioning.md`](../../docs/agent-provisioning.md).
+To provision the agent identity, private key, and delegation referenced above, see [the agent provisioning runbook](https://github.com/NuggetsLtd/langchain-nuggets/blob/main/docs/agent-provisioning.md).
 
 Access proof artifacts after execution:
 

@@ -31,7 +31,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, Union
 
@@ -57,28 +56,15 @@ def fail(message: str) -> None:
 def load_key_from_env() -> Union[str, Dict[str, Any]]:
     """Resolve NUGGETS_AGENT_PRIVATE_KEY to a value MiddlewareConfig accepts.
 
-    Supports PEM file path, inline PEM, JWK JSON file, JWKS JSON file
-    (takes keys[0]), and inline JWK/JWKS JSON.
+    A file path (PEM, JWK JSON, JWKS JSON) is handed off as-is to the
+    middleware loader, which handles all three forms. Inline JSON is
+    parsed and passed as a dict so MiddlewareConfig validation runs
+    against a structured value rather than a raw string.
     """
     raw = os.environ["NUGGETS_AGENT_PRIVATE_KEY"]
-    candidate: Any = None
     if raw.lstrip().startswith("{"):
-        candidate = json.loads(raw)
-    else:
-        path = Path(raw)
-        if path.is_file():
-            content = path.read_text(encoding="utf-8")
-            if content.lstrip().startswith("{"):
-                candidate = json.loads(content)
-            else:
-                return raw
-        else:
-            return raw
-    if isinstance(candidate, dict) and isinstance(candidate.get("keys"), list):
-        if not candidate["keys"]:
-            fail("JWKS contained no keys")
-        return candidate["keys"][0]
-    return candidate
+        return json.loads(raw)
+    return raw
 
 
 def main() -> None:

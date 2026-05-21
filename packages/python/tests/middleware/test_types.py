@@ -240,3 +240,61 @@ class TestMiddlewareConfigAgentProof:
                 **self._base_kwargs(),
                 agent_private_key="not-a-pem-not-a-path",
             )
+
+    def test_jwks_dict_accepted(self):
+        # The accounts portal exports the private key as a JWKS document
+        # (`{"keys": [<jwk>]}`). The loader must unwrap and use the first key.
+        import json as _json
+
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from jwt.algorithms import RSAAlgorithm
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwk = _json.loads(RSAAlgorithm.to_jwk(priv))
+        jwks = {"keys": [jwk]}
+        config = MiddlewareConfig(**self._base_kwargs(), agent_private_key=jwks)
+        assert config.agent_private_key == jwks
+
+    def test_jwks_file_accepted(self, tmp_path):
+        import json as _json
+
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from jwt.algorithms import RSAAlgorithm
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwk = _json.loads(RSAAlgorithm.to_jwk(priv))
+        jwks_path = tmp_path / "agent-jwks.json"
+        jwks_path.write_text(_json.dumps({"keys": [jwk]}))
+
+        config = MiddlewareConfig(
+            **self._base_kwargs(), agent_private_key=str(jwks_path)
+        )
+        assert config.agent_private_key == str(jwks_path)
+
+    def test_single_jwk_file_accepted(self, tmp_path):
+        # A user might save the inner JWK without the {"keys": [...]} wrapper.
+        import json as _json
+
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from jwt.algorithms import RSAAlgorithm
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwk = _json.loads(RSAAlgorithm.to_jwk(priv))
+        jwk_path = tmp_path / "agent.jwk.json"
+        jwk_path.write_text(_json.dumps(jwk))
+
+        config = MiddlewareConfig(
+            **self._base_kwargs(), agent_private_key=str(jwk_path)
+        )
+        assert config.agent_private_key == str(jwk_path)
+
+    def test_empty_jwks_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            MiddlewareConfig(**self._base_kwargs(), agent_private_key={"keys": []})
+        assert "no keys" in str(exc_info.value).lower()
+
+    def test_malformed_json_file_rejected(self, tmp_path):
+        bad = tmp_path / "broken.json"
+        bad.write_text("{not json at all")
+        with pytest.raises(ValidationError):
+            MiddlewareConfig(**self._base_kwargs(), agent_private_key=str(bad))
