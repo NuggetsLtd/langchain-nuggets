@@ -135,12 +135,12 @@ from langchain_nuggets.middleware import NuggetsAuthorityMiddleware, MiddlewareC
 from langgraph.prebuilt import ToolNode
 
 config = MiddlewareConfig(
-    api_url="https://api.nuggets.life",
-    partner_id="your-partner-id",
-    partner_secret="your-secret",
-    agent_id="agent-001",
-    controller_id="org-001",
-    delegation_id="del-001",
+    api_url="https://accounts-dev.internal-nuggets.life",
+    oidc_issuer_url="https://auth-dev.internal-nuggets.life",
+    agent_id="did:web:auth-dev.internal-nuggets.life:<client_id>",
+    controller_id="did:web:auth-dev.internal-nuggets.life:<controller_id>",
+    delegation_id="42",
+    agent_private_key="/secrets/agent-jwks.json",
 )
 
 middleware = NuggetsAuthorityMiddleware(config)
@@ -161,6 +161,8 @@ tool_node = ToolNode(
 | **ALLOW** | Tool executes, proof artifact emitted |
 | **DENY** | Tool blocked, structured error returned |
 | **ERROR** | Fail closed — tool not executed |
+
+To provision the agent identity, private key, and delegation referenced above, see [the agent provisioning runbook](https://github.com/NuggetsLtd/langchain-nuggets/blob/main/docs/agent-provisioning.md).
 
 Access proof artifacts after execution:
 
