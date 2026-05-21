@@ -36,6 +36,7 @@ from demo_config import (
 )
 
 try:
+    # `Form(...)` requires python-multipart; FastAPI doesn't pull it in by default.
     from fastapi import FastAPI, Form
     from fastapi.responses import JSONResponse
     import uvicorn

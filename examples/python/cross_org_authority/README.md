@@ -5,7 +5,7 @@ Demonstrates all six Nuggets trust primitives with a cross-organisational delega
 ## Setup
 
 ```bash
-pip install langchain-nuggets fastapi uvicorn httpx
+pip install langchain-nuggets fastapi uvicorn httpx python-multipart
 ```
 
 ## Run
