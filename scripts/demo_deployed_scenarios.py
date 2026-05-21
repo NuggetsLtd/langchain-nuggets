@@ -2,7 +2,8 @@
 """Cross-org authority scenarios against a deployed Nuggets backend.
 
 Designed to be run for a screen-recording: each scenario prints a
-banner, the request the SDK is making, and the backend's response.
+banner, the tool/target the SDK is sending, and the authority's
+decision (ALLOW + proof, or DENY + reason_code + proof_id).
 Pauses for keyboard input between scenarios (set `NUGGETS_DEMO_AUTO=1`
 to run continuously, e.g. for sanity checks).
 
@@ -153,23 +154,39 @@ def make_handler(call_id: str, content: str = '{"status": "ok"}') -> Any:
 
 
 def describe_result(result: ToolMessage, middleware: NuggetsAuthorityMiddleware) -> None:
+    """Render the authority decision separately from the tool handler's output.
+
+    On ALLOW the middleware passes the call through to the handler, so
+    `result.content` is whatever the handler returned. The authority decision
+    lives in `middleware.proofs[-1]`. On DENY/ERROR the middleware blocks
+    the handler and synthesises a ToolMessage describing the failure.
+    """
     try:
         payload = json.loads(result.content)
     except json.JSONDecodeError:
         print(f"  Raw result: {result.content!r}")
         return
 
-    status = payload.get("status") or payload.get("decision") or "OK"
-    print(f"  Decision:   {status}")
-    if "reason_code" in payload and payload["reason_code"]:
-        print(f"  Reason:     {payload['reason_code']}")
-    if "message" in payload and payload["message"]:
-        print(f"  Message:    {payload['message']}")
+    status = payload.get("status")
+    if status in {"DENIED", "ERROR"}:
+        print(f"  Authority:  {status}")
+        if payload.get("reason_code"):
+            print(f"  Reason:     {payload['reason_code']}")
+        if payload.get("proof_id"):
+            print(f"  Proof ID:   {payload['proof_id']}")
+        if payload.get("message"):
+            print(f"  Message:    {payload['message']}")
+        return
+
+    # ALLOW path: the handler was invoked. Decision + proof come from
+    # the middleware's recorded proof, not the handler's payload.
+    print(f"  Authority:  ALLOW")
     if middleware.proofs:
         proof = middleware.proofs[-1]
         print(f"  Proof ID:   {proof.proof_id}")
         print(f"  Signature:  {proof.authority_signature[:48]}...")
         print(f"  Latency:    {proof.latency_ms:.1f}ms")
+    print(f"  Tool output:{result.content}")
 
 
 def scenario_allow(tool: str, target: str) -> Optional[ProofArtifact]:
