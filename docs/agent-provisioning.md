@@ -76,7 +76,7 @@ Field reference:
 |-------|----------------|
 | **Remote Agent** | The DID of the agent that will be making calls (typically the agent you just created if testing within one tenant, or another tenant's agent DID if granting cross-org access). |
 | **Local Agent** | Dropdown — pick the agent in *your* tenant that acts as the controller/issuer. |
-| **Allowed Actions** | Comma-separated capability strings. Must include every tool name the SDK will wrap. Example: `check_kyc_status, verify_credential`. |
+| **Allowed Actions** | Comma-separated capability strings. Must include every tool name the SDK will wrap — these are arbitrary identifiers you choose to match the tools in your own LangChain/LangGraph application. |
 | **Allowed Services** | Comma-separated target strings. Leave blank for "any target". When set, every SDK call must pass a matching `target` argument. |
 | **Access Expires** | Optional `datetime-local`. Leave blank for "never". |
 | **Max Calls** | Integer invocation cap (defaults to 10). Each ALLOW decrements; once exhausted, every subsequent request is DENY'd with `CAP_EXCEEDED_INVOCATIONS`. |
@@ -164,8 +164,8 @@ export NUGGETS_AGENT_ID="did:web:auth-dev.internal-nuggets.life:..."
 export NUGGETS_CONTROLLER_ID="did:web:auth-dev.internal-nuggets.life:..."
 export NUGGETS_DELEGATION_ID="42"
 export NUGGETS_AGENT_PRIVATE_KEY="/secrets/agent-jwks.json"
-export NUGGETS_TOOL="check_kyc_status"            # must be in Allowed Actions
-export NUGGETS_TARGET="kyc-service"                # required when Allowed Services is set
+export NUGGETS_TOOL="your_tool_name"   # any capability you listed under Allowed Actions
+export NUGGETS_TARGET="your_target"    # required when Allowed Services is set; otherwise omit
 
 python scripts/smoke_test_authority.py
 ```

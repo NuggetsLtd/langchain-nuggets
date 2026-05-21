@@ -20,8 +20,8 @@ Usage:
     export NUGGETS_CONTROLLER_ID="did:nuggets:oidc:..."
     export NUGGETS_DELEGATION_ID="42"
     export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"  # or PEM
-    export NUGGETS_TOOL="check_kyc_status"  # must be in delegation's capabilities
-    export NUGGETS_TARGET="kyc-service"     # optional; must match the
+    export NUGGETS_TOOL="your_tool_name"    # any capability in the delegation's allowed_capabilities
+    export NUGGETS_TARGET="your_target"     # optional; must match the
                                             # delegation's allowed_targets when set
 
     python scripts/smoke_test_authority.py
@@ -72,7 +72,9 @@ def main() -> None:
     if missing:
         fail(f"missing env vars: {', '.join(missing)}")
 
-    tool_name = os.environ.get("NUGGETS_TOOL", "check_kyc_status")
+    tool_name = os.environ.get("NUGGETS_TOOL")
+    if not tool_name:
+        fail("NUGGETS_TOOL must be set to a capability listed in the delegation")
 
     config = MiddlewareConfig(
         api_url=os.environ["NUGGETS_AUTHORITY_URL"],

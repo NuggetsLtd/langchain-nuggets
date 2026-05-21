@@ -136,7 +136,7 @@ export NUGGETS_AGENT_ID="did:web:auth-dev.internal-nuggets.life:..."
 export NUGGETS_CONTROLLER_ID="did:web:auth-dev.internal-nuggets.life:..."
 export NUGGETS_DELEGATION_ID="42"
 export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"
-export NUGGETS_TOOL="check_kyc_status"
+export NUGGETS_TOOL="your_tool_name"   # any capability listed in the delegation's allowed_capabilities
 
 python scripts/smoke_test_authority.py
 ```
