@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Cross-Org Authority Demo — Nuggets Execution-Layer MVP
+"""Cross-Org Authority Demo — shape-only sanity check.
+
+> **Status: known-broken end-to-end.** The middleware now requires an
+> OIDC bearer + signed agent_proof; the local FastAPI mock in
+> `local_authority.py` does not speak OIDC and cannot satisfy real auth.
+> Running this script with `test_mode=True` keeps the SDK happy but
+> short-circuits every scenario to ALLOW — the ALLOW/DENY/cap/expiry
+> distinctions below no longer reflect real backend behaviour.
+>
+> Tracking fix in GitHub issues (search "cross_org_authority demo").
+> For real end-to-end verification use `scripts/smoke_test_authority.py`
+> against a deployed environment instead — see `docs/agent-provisioning.md`.
 
 Demonstrates all six trust primitives:
   1. Actor Identity       — agent DID verification
@@ -9,7 +20,7 @@ Demonstrates all six trust primitives:
   5. Consent              — revocation immediately blocks execution
   6. Accountability       — portable, independently verifiable proof
 
-Scenarios:
+Scenarios (currently all return ALLOW under test_mode):
   1. ALLOW      — in-scope tool call
   2. DENY       — out-of-scope tool
   3. DENY       — cap exceeded
@@ -118,14 +129,18 @@ def run():
     print(f"  Cap:          3 invocations")
     print(f"  Expires:      {delegation['expires_at']}")
 
-    # Create middleware pointing at local authority
+    # test_mode short-circuits the real auth flow so the demo can construct
+    # without an OIDC issuer or keypair. This is a known limitation — the
+    # demo no longer hits the FastAPI mock under test_mode, so all scenarios
+    # below return ALLOW regardless of what the mock would have decided.
+    # Follow-up PR adds an OIDC token endpoint to the mock and restores
+    # end-to-end behaviour.
     config = MiddlewareConfig(
         api_url=AUTHORITY_URL,
-        partner_id="demo-partner",
-        partner_secret="demo-secret",
         agent_id=AGENT_B["did"],
         controller_id=ORG_B["id"],
         delegation_id="del-001",
+        test_mode=True,
     )
     middleware = NuggetsAuthorityMiddleware(config)
 

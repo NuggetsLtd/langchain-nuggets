@@ -28,13 +28,30 @@ def main() -> None:
     # --- Setup ---
     collected_proofs: list[ProofArtifact] = []
 
+    # Use an ephemeral key so MiddlewareConfig validation passes; the OIDC
+    # client is replaced with a MagicMock below so the demo doesn't actually
+    # hit a network. test_mode would short-circuit to ALLOW and defeat the
+    # DENY / ERROR scenarios — see comment on PR #13.
+    from cryptography.hazmat.primitives import serialization as _ser
+    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+    _demo_key_pem = (
+        _rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        .private_bytes(
+            encoding=_ser.Encoding.PEM,
+            format=_ser.PrivateFormat.PKCS8,
+            encryption_algorithm=_ser.NoEncryption(),
+        )
+        .decode("utf-8")
+    )
+
     config = MiddlewareConfig(
         api_url="https://api.nuggets.example",
-        partner_id="partner-demo",
-        partner_secret="secret-demo",
-        agent_id="agent-demo-001",
-        controller_id="org-acme",
-        delegation_id="del-finance-2026",
+        oidc_issuer_url="https://auth.nuggets.example",
+        agent_id="did:web:auth.nuggets.example:agent-demo-001",
+        controller_id="did:web:auth.nuggets.example:org-acme",
+        delegation_id="42",
+        agent_private_key=_demo_key_pem,
         on_proof=lambda proof: collected_proofs.append(proof),
     )
 
@@ -153,12 +170,12 @@ def main() -> None:
     from langchain_nuggets.middleware import NuggetsAuthorityMiddleware, MiddlewareConfig
 
     config = MiddlewareConfig(
-        api_url="https://api.nuggets.life",
-        partner_id="your-partner-id",
-        partner_secret="your-partner-secret",
-        agent_id="agent-001",
-        controller_id="org-001",
-        delegation_id="del-001",
+        api_url="https://accounts.nuggets.life",
+        oidc_issuer_url="https://auth.nuggets.life",
+        agent_id="did:web:auth.nuggets.life:<client_id>",
+        controller_id="did:web:auth.nuggets.life:<controller_id>",
+        delegation_id="42",
+        agent_private_key="/secrets/agent-jwks.json",
     )
 
     middleware = NuggetsAuthorityMiddleware(config)
