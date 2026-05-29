@@ -79,6 +79,31 @@ class TestTokenExchange:
         assert "scope=authority.evaluate" in form
 
     @respx.mock
+    def test_omits_resource_when_unset(self, client):
+        route = respx.post("https://auth.test/token").mock(
+            return_value=Response(200, json={"access_token": "tok-1", "expires_in": 3600})
+        )
+        client.get_access_token()
+        assert "resource=" not in route.calls.last.request.content.decode()
+
+    @respx.mock
+    def test_includes_resource_when_set(self, rsa_keypair):
+        from urllib.parse import parse_qs
+
+        client = OidcClientCredentialsClient(
+            issuer_url="https://auth.test",
+            client_id="did:web:auth.test:abc",
+            private_key_pem=rsa_keypair["private_pem"],
+            resource="https://accounts.test/api/authority",
+        )
+        route = respx.post("https://auth.test/token").mock(
+            return_value=Response(200, json={"access_token": "tok-1", "expires_in": 3600})
+        )
+        client.get_access_token()
+        form = parse_qs(route.calls.last.request.content.decode())
+        assert form["resource"] == ["https://accounts.test/api/authority"]
+
+    @respx.mock
     def test_caches_token_until_near_expiry(self, client):
         route = respx.post("https://auth.test/token").mock(
             return_value=Response(200, json={"access_token": "tok-1", "expires_in": 3600})

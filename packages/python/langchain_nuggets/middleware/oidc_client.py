@@ -43,6 +43,7 @@ class OidcClientCredentialsClient:
         client_id: str,
         private_key_pem: str,
         scope: str = _DEFAULT_SCOPE,
+        resource: Optional[str] = None,
         verify_ssl: bool = True,
         ca_cert: Optional[str] = None,
     ) -> None:
@@ -51,6 +52,11 @@ class OidcClientCredentialsClient:
         self._client_id = client_id
         self._private_key_pem = private_key_pem
         self._scope = scope
+        # RFC 8707 resource indicator. The Nuggets OIDC provider only mints a
+        # JWT access token (rather than an opaque one) when the token request
+        # names the authority audience as a resource; without it the bearer
+        # the authority endpoint receives is opaque and fails verification.
+        self._resource = resource
         self._token: Optional[Dict[str, Any]] = None
         self._sync_client: Optional[httpx.Client] = None
         self._async_client: Optional[httpx.AsyncClient] = None
@@ -98,12 +104,15 @@ class OidcClientCredentialsClient:
         return access_token
 
     def _token_request_form(self) -> Dict[str, str]:
-        return {
+        form = {
             "grant_type": "client_credentials",
             "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
             "client_assertion": self._build_client_assertion(),
             "scope": self._scope,
         }
+        if self._resource:
+            form["resource"] = self._resource
+        return form
 
     def _get_sync_client(self) -> httpx.Client:
         if self._sync_client is None:
