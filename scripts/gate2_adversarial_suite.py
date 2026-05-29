@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -209,7 +210,7 @@ def scenario_expired_delegation() -> None:
     if not d:
         record("A4 expired delegation", True, "SKIPPED (set NUGGETS_EXPIRED_DELEGATION_ID)")
         return
-    expect_deny("A4 expired delegation", run_tool_call(base_config(delegation_id=d), env("NUGGETS_TOOL")), "DELEGATION_EXPIRED")
+    expect_deny("A4 expired delegation", run_tool_call(base_config(delegation_id=d), env("NUGGETS_TOOL"), os.environ.get("NUGGETS_TARGET")), "DELEGATION_EXPIRED")
 
 
 def scenario_revoked_delegation() -> None:
@@ -217,7 +218,7 @@ def scenario_revoked_delegation() -> None:
     if not d:
         record("A5 revoked delegation", True, "SKIPPED (set NUGGETS_REVOKED_DELEGATION_ID)")
         return
-    expect_deny("A5 revoked delegation", run_tool_call(base_config(delegation_id=d), env("NUGGETS_TOOL")), "DELEGATION_REVOKED")
+    expect_deny("A5 revoked delegation", run_tool_call(base_config(delegation_id=d), env("NUGGETS_TOOL"), os.environ.get("NUGGETS_TARGET")), "DELEGATION_REVOKED")
 
 
 def scenario_foreign_delegation() -> None:
@@ -225,7 +226,7 @@ def scenario_foreign_delegation() -> None:
     if not d:
         record("A6 delegation belongs to another agent", True, "SKIPPED (set NUGGETS_OTHER_AGENT_DELEGATION_ID)")
         return
-    expect_deny("A6 foreign delegation", run_tool_call(base_config(delegation_id=d), env("NUGGETS_TOOL")), "DELEGATION_AGENT_MISMATCH")
+    expect_deny("A6 foreign delegation", run_tool_call(base_config(delegation_id=d), env("NUGGETS_TOOL"), os.environ.get("NUGGETS_TARGET")), "DELEGATION_AGENT_MISMATCH")
 
 
 def scenario_cap_exceeded() -> None:
@@ -233,7 +234,7 @@ def scenario_cap_exceeded() -> None:
     if not d:
         record("A7 cap exceeded", True, "SKIPPED (set NUGGETS_CAPPED_DELEGATION_ID to a delegation whose cap is exhausted)")
         return
-    expect_deny("A7 cap exceeded", run_tool_call(base_config(delegation_id=d), env("NUGGETS_TOOL")), "CAP_EXCEEDED")
+    expect_deny("A7 cap exceeded", run_tool_call(base_config(delegation_id=d), env("NUGGETS_TOOL"), os.environ.get("NUGGETS_TARGET")), "CAP_EXCEEDED")
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +250,7 @@ def _raw_post(headers: Dict[str, str]) -> httpx.Response:
         "action": {
             "tool": env("NUGGETS_TOOL"),
             "nonce": "gate2-raw",
-            "timestamp": "2026-01-01T00:00:00Z",
+            "timestamp": _now_iso(),
             "parameters_hash": "x",
             "intent_hash": "x",
         },
@@ -292,6 +293,66 @@ SCENARIOS = [
     scenario_bearer_missing,
     scenario_bearer_junk,
 ]
+
+
+
+# --- Section 4 (appended) -------------------------------------------------
+def _mint_bearer(cfg, resource=None):
+    return OidcClientCredentialsClient(
+        issuer_url=cfg.oidc_issuer_url,
+        client_id=_extract_oidc_client_id(cfg.agent_id),
+        private_key_pem=load_private_key(_load_key()),
+        scope=cfg.authority_scope,
+        resource=(cfg.resolved_authority_audience() if resource is None else resource),
+    ).get_access_token()
+
+
+def _valid_body(cfg, nonce, *, timestamp=None):
+    proof = sign_agent_proof(load_private_key(_load_key()), cfg.agent_id, nonce)
+    return {"agent_id": cfg.agent_id, "controller_id": cfg.controller_id,
+            "delegation_id": cfg.delegation_id, "agent_proof": proof,
+            "action": {"tool": env("NUGGETS_TOOL"), "target": os.environ.get("NUGGETS_TARGET", "kyc-service"),
+                       "nonce": nonce, "timestamp": timestamp or _now_iso(),
+                       "parameters_hash": "gate2", "intent_hash": "gate2"}}
+
+
+def _post4(cfg, body, token):
+    return httpx.post(cfg.api_url.rstrip("/") + "/api/authority/evaluate", json=body,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"}, timeout=15)
+
+
+def scenario_nonce_replay():
+    cfg = base_config(); token = _mint_bearer(cfg); nonce = "gate2-replay-" + uuid.uuid4().hex
+    body = _valid_body(cfg, nonce)
+    first = _post4(cfg, body, token); second = _post4(cfg, body, token)
+    try: err = (second.json().get("error") or second.json().get("reason_code") or "").lower()
+    except Exception: err = second.text[:120]
+    record("B3 replayed nonce -> NONCE_REPLAY", second.status_code == 401 and "nonce" in err,
+           f"first={first.status_code} second={second.status_code} {err!r}")
+
+
+def scenario_stale_timestamp():
+    cfg = base_config(); token = _mint_bearer(cfg)
+    body = _valid_body(cfg, "gate2-stale-" + uuid.uuid4().hex, timestamp="2026-01-01T00:00:00Z")
+    r = _post4(cfg, body, token)
+    try: err = (r.json().get("error") or "").lower()
+    except Exception: err = r.text[:120]
+    record("B4 stale timestamp -> STALE_TIMESTAMP", r.status_code == 400 and ("stale" in err or "timestamp" in err),
+           f"{r.status_code} {err!r}")
+
+
+def scenario_opaque_token():
+    cfg = base_config()
+    try: token = _mint_bearer(cfg, resource="")
+    except Exception as exc:
+        record("B5 opaque token -> BEARER_INVALID", True, f"SKIPPED - client won't mint without resource ({type(exc).__name__})"); return
+    r = _post4(cfg, _valid_body(cfg, "gate2-opaque-" + uuid.uuid4().hex), token)
+    try: reason = (r.json().get("reason_code") or r.json().get("error") or "").upper()
+    except Exception: reason = r.text[:120]
+    record("B5 opaque token -> BEARER_INVALID", r.status_code == 401 and "BEARER" in reason, f"{r.status_code} {reason!r}")
+
+
+SCENARIOS = SCENARIOS + [scenario_nonce_replay, scenario_stale_timestamp, scenario_opaque_token]
 
 
 def main() -> None:
