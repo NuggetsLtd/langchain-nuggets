@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.4.1]
+
+### Fixed
+
+- The OIDC token request now sends an RFC 8707 `resource` indicator (defaulting to `${api_url}/api/authority`). The Nuggets provider only mints a **JWT** access token — required by the authority endpoint's offline bearer verification — when the token request names the authority audience; without it the provider returns an opaque token that fails verification. Previously this happened to work only because the provider defaulted the audience server-side; that default has since been tightened, making the explicit `resource` mandatory.
+
+### Added
+
+- `authority_audience` field on `MiddlewareConfig` (optional). Overrides the derived `${api_url}/api/authority` resource indicator for deployments whose audience differs from that convention.
+
 ## [0.4.0]
 
 ### Removed

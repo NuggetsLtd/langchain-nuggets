@@ -186,6 +186,39 @@ class TestMiddlewareConfigTls:
         assert config.ca_cert == "/path/ca.pem"
 
 
+class TestMiddlewareConfigAuthorityAudience:
+    def test_derives_audience_from_api_url(self):
+        config = MiddlewareConfig(
+            api_url="https://accounts.test",
+            agent_id="a",
+            controller_id="c",
+            delegation_id="d",
+            test_mode=True,
+        )
+        assert config.resolved_authority_audience() == "https://accounts.test/api/authority"
+
+    def test_derives_audience_strips_trailing_slash(self):
+        config = MiddlewareConfig(
+            api_url="https://accounts.test/",
+            agent_id="a",
+            controller_id="c",
+            delegation_id="d",
+            test_mode=True,
+        )
+        assert config.resolved_authority_audience() == "https://accounts.test/api/authority"
+
+    def test_explicit_audience_overrides(self):
+        config = MiddlewareConfig(
+            api_url="https://accounts.test",
+            agent_id="a",
+            controller_id="c",
+            delegation_id="d",
+            authority_audience="https://custom.test/authority",
+            test_mode=True,
+        )
+        assert config.resolved_authority_audience() == "https://custom.test/authority"
+
+
 class TestMiddlewareConfigAgentProof:
     def _base_kwargs(self):
         return dict(

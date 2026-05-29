@@ -96,6 +96,7 @@ class NuggetsAuthorityMiddleware:
                 client_id=_extract_oidc_client_id(config.agent_id),
                 private_key_pem=self._agent_private_key_pem,
                 scope=config.authority_scope,
+                resource=config.resolved_authority_audience(),
                 verify_ssl=config.verify_ssl,
                 ca_cert=config.ca_cert,
             )

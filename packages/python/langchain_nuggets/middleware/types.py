@@ -17,6 +17,12 @@ class MiddlewareConfig(BaseModel):
     delegation_id: str
     authority_endpoint: str = "/api/authority/evaluate"
     authority_scope: str = "authority.evaluate"
+    # RFC 8707 resource indicator sent on the OIDC token request. The Nuggets
+    # provider only mints a JWT access token (vs. an opaque one) when the
+    # request names the authority audience. Defaults to `${api_url}/api/authority`,
+    # matching what the backend verifies the bearer's `aud` claim against.
+    # Override only if your deployment's audience differs from that convention.
+    authority_audience: Optional[str] = None
     on_proof: Optional[Callable[["ProofArtifact"], None]] = None
     intent_resolver: Optional[Callable[[str, Dict[str, Any]], Optional[str]]] = None
     ca_cert: Optional[str] = None
@@ -52,6 +58,16 @@ class MiddlewareConfig(BaseModel):
 
         load_private_key(self.agent_private_key)
         return self
+
+    def resolved_authority_audience(self) -> str:
+        """The resource indicator to request a JWT bearer for.
+
+        Explicit `authority_audience` wins; otherwise derive
+        `${api_url}/api/authority` to match the backend's expected `aud`.
+        """
+        if self.authority_audience:
+            return self.authority_audience
+        return f"{self.api_url.rstrip('/')}/api/authority"
 
 
 class ActionContext(BaseModel):
