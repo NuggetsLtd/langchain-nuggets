@@ -20,6 +20,7 @@ from langchain_nuggets.middleware.proof import (
 )
 from langchain_nuggets.middleware.proof_verification import (
     ProofVerificationError,
+    averify_authority_proof,
     verify_authority_proof,
 )
 from langchain_nuggets.middleware.types import (
@@ -171,11 +172,35 @@ class NuggetsAuthorityMiddleware:
         if self._on_proof is not None:
             self._on_proof(proof)
 
+    def _proof_expected(self, auth_response: AuthorityEvaluationResponse) -> Dict[str, Any]:
+        return {
+            "decision": auth_response.decision,
+            "proof_id": auth_response.proof_id,
+            "agent_id": self._config.agent_id,
+            "controller_id": self._config.controller_id,
+            "constraints_evaluated": auth_response.constraints_evaluated,
+        }
+
+    def _proof_failure_message(
+        self, exc: Exception, tool_call_id: str, tool_name: str, proof_id: str
+    ) -> ToolMessage:
+        logger.warning("PROOF_VERIFICATION_FAILED: tool=%s %s", tool_name, exc)
+        content = json.dumps(
+            {
+                "status": "DENIED",
+                "tool": tool_name,
+                "reason_code": "PROOF_VERIFICATION_FAILED",
+                "proof_id": proof_id,
+                "message": f"Authority proof for '{tool_name}' failed verification: {exc}",
+            }
+        )
+        return ToolMessage(content=content, tool_call_id=tool_call_id)
+
     def _verify_proof_or_none(
         self, auth_response: AuthorityEvaluationResponse, tool_call_id: str, tool_name: str
     ) -> Optional[ToolMessage]:
-        """#161: verify the ALLOW proof. Returns a DENY-shaped ToolMessage to
-        short-circuit on failure, or None when the proof is trustworthy.
+        """#161: verify the ALLOW proof (sync). Returns a DENY-shaped
+        ToolMessage to short-circuit on failure, or None when trustworthy.
 
         Default-on; skipped only when verify_proofs is explicitly disabled or
         in test_mode (whose proof is intentionally unverifiable).
@@ -185,30 +210,33 @@ class NuggetsAuthorityMiddleware:
         try:
             verify_authority_proof(
                 auth_response.signature,
-                expected={
-                    "decision": auth_response.decision,
-                    "proof_id": auth_response.proof_id,
-                    "agent_id": self._config.agent_id,
-                    "controller_id": self._config.controller_id,
-                    "constraints_evaluated": auth_response.constraints_evaluated,
-                },
+                expected=self._proof_expected(auth_response),
                 oidc_issuer_url=self._config.oidc_issuer_url,
+                verify_ssl=self._config.verify_ssl,
+                ca_cert=self._config.ca_cert,
             )
             return None
         except ProofVerificationError as exc:
-            logger.warning("PROOF_VERIFICATION_FAILED: tool=%s %s", tool_name, exc)
-            content = json.dumps(
-                {
-                    "status": "DENIED",
-                    "tool": tool_name,
-                    "reason_code": "PROOF_VERIFICATION_FAILED",
-                    "proof_id": auth_response.proof_id,
-                    "message": (
-                        f"Authority proof for '{tool_name}' failed verification: {exc}"
-                    ),
-                }
+            return self._proof_failure_message(exc, tool_call_id, tool_name, auth_response.proof_id)
+
+    async def _averify_proof_or_none(
+        self, auth_response: AuthorityEvaluationResponse, tool_call_id: str, tool_name: str
+    ) -> Optional[ToolMessage]:
+        """Async variant — uses httpx.AsyncClient so DID resolution doesn't
+        block the event loop."""
+        if self._config.test_mode or not self._config.verify_proofs:
+            return None
+        try:
+            await averify_authority_proof(
+                auth_response.signature,
+                expected=self._proof_expected(auth_response),
+                oidc_issuer_url=self._config.oidc_issuer_url,
+                verify_ssl=self._config.verify_ssl,
+                ca_cert=self._config.ca_cert,
             )
-            return ToolMessage(content=content, tool_call_id=tool_call_id)
+            return None
+        except ProofVerificationError as exc:
+            return self._proof_failure_message(exc, tool_call_id, tool_name, auth_response.proof_id)
 
     def _test_mode_response(self) -> AuthorityEvaluationResponse:
         return AuthorityEvaluationResponse(
@@ -354,7 +382,7 @@ class NuggetsAuthorityMiddleware:
             logger.info("DENY: tool=%s reason=%s", tool_name, auth_response.reason_code)
             return self._make_deny_message(tool_call_id, tool_name, auth_response)
 
-        proof_failure = self._verify_proof_or_none(auth_response, tool_call_id, tool_name)
+        proof_failure = await self._averify_proof_or_none(auth_response, tool_call_id, tool_name)
         if proof_failure is not None:
             return proof_failure
 

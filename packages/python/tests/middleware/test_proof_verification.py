@@ -12,6 +12,7 @@ from jwt.algorithms import RSAAlgorithm
 
 from langchain_nuggets.middleware.proof_verification import (
     ProofVerificationError,
+    averify_authority_proof,
     verify_authority_proof,
 )
 
@@ -166,3 +167,33 @@ def test_unsupported_issuer_rejected(portal_key):
     sig = _sign_proof(portal_key["priv"], {"iss": "did:example:nope"})
     with pytest.raises(ProofVerificationError, match="unsupported proof issuer"):
         verify_authority_proof(sig, expected=_expected())
+
+
+@respx.mock
+def test_kid_not_in_did_document_fails_closed(portal_key):
+    # did.json publishes a key under a different kid than the proof header names.
+    # Copy so we don't mutate the module-scoped fixture's jwk.
+    other_jwk = {**portal_key["public_jwk"], "kid": "some-other-kid"}
+    respx.get(DID_URL).mock(return_value=Response(200, json=_did_document(other_jwk)))
+    sig = _sign_proof(portal_key["priv"], {})  # header kid = KID
+    with pytest.raises(ProofVerificationError, match="no publicKeyJwk in did document for kid"):
+        verify_authority_proof(sig, expected=_expected())
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_valid_proof_verifies(portal_key):
+    respx.get(DID_URL).mock(return_value=Response(200, json=_did_document(portal_key["public_jwk"])))
+    sig = _sign_proof(portal_key["priv"], {})
+    claims = await averify_authority_proof(sig, expected=_expected())
+    assert claims["proof_id"] == "proof-1"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_signature_by_non_portal_key_rejected(portal_key):
+    respx.get(DID_URL).mock(return_value=Response(200, json=_did_document(portal_key["public_jwk"])))
+    attacker = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    sig = _sign_proof(attacker, {})
+    with pytest.raises(ProofVerificationError, match="signature verification failed"):
+        await averify_authority_proof(sig, expected=_expected())
