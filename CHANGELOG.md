@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.5.0]
+
+### Added
+
+- **Consumer-side authority proof verification (#161), on by default.** Every ALLOW decision now has its signed proof verified before the tool runs: the proof's `iss` DID is resolved (generic `did:web` → `…/.well-known/did.json`), the RS256 signature is checked against the published key, and the proof is bound to the request (decision, proof_id, agent_id, controller_id, constraints_evaluated). On any failure the call is failed closed as a DENY with `reason_code = PROOF_VERIFICATION_FAILED`. This makes the "independently verifiable decision" guarantee real rather than taken on faith.
+- `verify_authority_proof(signature, *, expected, oidc_issuer_url=None, http_client=None)` exported from `langchain_nuggets.middleware` — a standalone verifier so a third party can validate an emitted proof artifact out-of-band. Raises `ProofVerificationError` (also exported) on failure.
+- `verify_proofs` field on `MiddlewareConfig` (default `True`). Set to `False` only as a deliberate opt-out (e.g. an offline harness that verifies proofs separately).
+- Pre-#174 fallback: when a proof's `iss` is still `did:nuggets:oidc:<id>`, the issuer host is derived from `oidc_issuer_url`. Once the backend issues `did:web` proof issuers, resolution is fully generic.
+
+### Notes
+
+- `test_mode` proofs are intentionally unverifiable and skip verification.
+- `action_context_hash` binding is supported by the verifier when supplied, but the middleware does not yet recompute it from the sent request — deferred until it can be byte-matched against the backend's canonical hashing on dev (a mismatch would fail-close legitimate calls). The identity binds above already prevent proof-swapping.
+
 ## [0.4.1]
 
 ### Fixed

@@ -1,11 +1,15 @@
 """Tests for NuggetsAuthorityMiddleware."""
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import jwt
 import pytest
+import respx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from httpx import Response
+from jwt.algorithms import RSAAlgorithm
 from langchain_core.messages import ToolMessage
 
 from langchain_nuggets.middleware.authority_middleware import NuggetsAuthorityMiddleware
@@ -34,6 +38,10 @@ def rsa_keypair():
 
 @pytest.fixture
 def config(rsa_keypair):
+    # verify_proofs is off here: these tests exercise routing/proof-emission
+    # mechanics with a stub signature and predate #161. Proof verification has
+    # its own dedicated coverage in TestProofVerificationDefaultOn (which flips
+    # it back on) and in test_proof_verification.py.
     return MiddlewareConfig(
         api_url="https://api.nuggets.test",
         oidc_issuer_url="https://auth.nuggets.test",
@@ -41,6 +49,7 @@ def config(rsa_keypair):
         controller_id="org-456",
         delegation_id="del-789",
         agent_private_key=rsa_keypair["private_pem"],
+        verify_proofs=False,
     )
 
 
@@ -138,6 +147,116 @@ class TestConstruction:
     def test_proofs_initially_empty(self, config):
         middleware = NuggetsAuthorityMiddleware(config)
         assert middleware.proofs == []
+
+
+class TestProofVerificationDefaultOn:
+    """#161: the SDK verifies the authority proof by default and fails closed."""
+
+    def test_allow_with_unverifiable_signature_fails_closed(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        # Flip verification back on (the shared fixture disables it). The fake
+        # "sig-abc" isn't a decodable JWS, so verification must fail and the
+        # ALLOW must be downgraded to PROOF_VERIFICATION_FAILED — tool NOT run.
+        config = config.model_copy(update={"verify_proofs": True})
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        mock_handler.assert_not_called()
+        data = json.loads(result.content)
+        assert data["status"] == "DENIED"
+        assert data["reason_code"] == "PROOF_VERIFICATION_FAILED"
+        assert middleware.proofs == []
+
+    def test_explicit_opt_out_skips_verification(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        # Shared config has verify_proofs=False; the unverifiable sig passes.
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        mock_handler.assert_called_once()
+        assert "success" in result.content
+
+    def test_test_mode_skips_verification(self, rsa_keypair, mock_request, mock_handler):
+        # test_mode proofs are intentionally unverifiable; verification is skipped.
+        cfg = MiddlewareConfig(
+            api_url="https://api.nuggets.test",
+            agent_id="agent-123",
+            controller_id="org-456",
+            delegation_id="del-789",
+            test_mode=True,
+            verify_proofs=True,
+        )
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+        mock_handler.assert_called_once()
+        assert "success" in result.content
+
+    @respx.mock
+    def test_verifiable_proof_passes_through(self, rsa_keypair, mock_request, mock_handler):
+        host, client_id, kid = "auth.nuggets.test", "portalC1", "portal-k1"
+        iss = f"did:web:{host}:{client_id}"
+        portal = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_jwk = json.loads(RSAAlgorithm.to_jwk(portal.public_key()))
+        public_jwk.update({"kid": kid, "alg": "RS256"})
+        did_doc = {
+            "id": iss,
+            "verificationMethod": [
+                {"id": f"{iss}#{kid}", "type": "JsonWebKey2020",
+                 "controller": iss, "publicKeyJwk": public_jwk}
+            ],
+        }
+        respx.get(f"https://{host}/{client_id}/.well-known/did.json").mock(
+            return_value=Response(200, json=did_doc)
+        )
+        portal_pem = portal.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode()
+        proof_jws = jwt.encode(
+            {
+                "proof_id": "proof-real",
+                "agent_id": "agent-123",
+                "controller_id": "org-456",
+                "constraints_evaluated": ["tool_allowed"],
+                "decision": "ALLOW",
+                "iat": int(time.time()),
+                "iss": iss,
+            },
+            portal_pem,
+            algorithm="RS256",
+            headers={"kid": kid},
+        )
+        cfg = MiddlewareConfig(
+            api_url="https://api.nuggets.test",
+            oidc_issuer_url="https://auth.nuggets.test",
+            agent_id="agent-123",
+            controller_id="org-456",
+            delegation_id="del-789",
+            agent_private_key=rsa_keypair["private_pem"],
+            verify_proofs=True,
+        )
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = {
+            "decision": "ALLOW",
+            "proof_id": "proof-real",
+            "signature": proof_jws,
+            "reason_code": None,
+            "constraints_evaluated": ["tool_allowed"],
+        }
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+        mock_handler.assert_called_once()
+        assert "success" in result.content
+        assert len(middleware.proofs) == 1
 
 
 class TestSyncWrapToolCall:

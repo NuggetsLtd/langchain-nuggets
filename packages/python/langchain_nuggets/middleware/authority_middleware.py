@@ -18,6 +18,10 @@ from langchain_nuggets.middleware.proof import (
     hash_parameters,
     hash_result,
 )
+from langchain_nuggets.middleware.proof_verification import (
+    ProofVerificationError,
+    verify_authority_proof,
+)
 from langchain_nuggets.middleware.types import (
     ActionContext,
     AuthorityEvaluationRequest,
@@ -167,6 +171,45 @@ class NuggetsAuthorityMiddleware:
         if self._on_proof is not None:
             self._on_proof(proof)
 
+    def _verify_proof_or_none(
+        self, auth_response: AuthorityEvaluationResponse, tool_call_id: str, tool_name: str
+    ) -> Optional[ToolMessage]:
+        """#161: verify the ALLOW proof. Returns a DENY-shaped ToolMessage to
+        short-circuit on failure, or None when the proof is trustworthy.
+
+        Default-on; skipped only when verify_proofs is explicitly disabled or
+        in test_mode (whose proof is intentionally unverifiable).
+        """
+        if self._config.test_mode or not self._config.verify_proofs:
+            return None
+        try:
+            verify_authority_proof(
+                auth_response.signature,
+                expected={
+                    "decision": auth_response.decision,
+                    "proof_id": auth_response.proof_id,
+                    "agent_id": self._config.agent_id,
+                    "controller_id": self._config.controller_id,
+                    "constraints_evaluated": auth_response.constraints_evaluated,
+                },
+                oidc_issuer_url=self._config.oidc_issuer_url,
+            )
+            return None
+        except ProofVerificationError as exc:
+            logger.warning("PROOF_VERIFICATION_FAILED: tool=%s %s", tool_name, exc)
+            content = json.dumps(
+                {
+                    "status": "DENIED",
+                    "tool": tool_name,
+                    "reason_code": "PROOF_VERIFICATION_FAILED",
+                    "proof_id": auth_response.proof_id,
+                    "message": (
+                        f"Authority proof for '{tool_name}' failed verification: {exc}"
+                    ),
+                }
+            )
+            return ToolMessage(content=content, tool_call_id=tool_call_id)
+
     def _test_mode_response(self) -> AuthorityEvaluationResponse:
         return AuthorityEvaluationResponse(
             decision="ALLOW",
@@ -228,6 +271,10 @@ class NuggetsAuthorityMiddleware:
         if auth_response.decision == "DENY":
             logger.info("DENY: tool=%s reason=%s", tool_name, auth_response.reason_code)
             return self._make_deny_message(tool_call_id, tool_name, auth_response)
+
+        proof_failure = self._verify_proof_or_none(auth_response, tool_call_id, tool_name)
+        if proof_failure is not None:
+            return proof_failure
 
         logger.info("ALLOW: tool=%s proof_id=%s", tool_name, auth_response.proof_id)
         result = handler(request)
@@ -306,6 +353,10 @@ class NuggetsAuthorityMiddleware:
         if auth_response.decision == "DENY":
             logger.info("DENY: tool=%s reason=%s", tool_name, auth_response.reason_code)
             return self._make_deny_message(tool_call_id, tool_name, auth_response)
+
+        proof_failure = self._verify_proof_or_none(auth_response, tool_call_id, tool_name)
+        if proof_failure is not None:
+            return proof_failure
 
         logger.info("ALLOW: tool=%s proof_id=%s", tool_name, auth_response.proof_id)
         result = await handler(request)
