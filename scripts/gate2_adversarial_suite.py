@@ -306,17 +306,20 @@ def _mint_bearer(cfg, resource=None):
         resource=(cfg.resolved_authority_audience() if resource is None else resource),
     ).get_access_token()
 
+
 def _valid_body(cfg, nonce, *, timestamp=None):
     proof = sign_agent_proof(load_private_key(_load_key()), cfg.agent_id, nonce)
     return {"agent_id": cfg.agent_id, "controller_id": cfg.controller_id,
             "delegation_id": cfg.delegation_id, "agent_proof": proof,
-            "action": {"tool": env("NUGGETS_TOOL"), "target": os.environ.get("NUGGETS_TARGET","kyc-service"),
+            "action": {"tool": env("NUGGETS_TOOL"), "target": os.environ.get("NUGGETS_TARGET", "kyc-service"),
                        "nonce": nonce, "timestamp": timestamp or _now_iso(),
                        "parameters_hash": "gate2", "intent_hash": "gate2"}}
 
+
 def _post4(cfg, body, token):
     return httpx.post(cfg.api_url.rstrip("/") + "/api/authority/evaluate", json=body,
-        headers={"Content-Type":"application/json","Authorization":f"Bearer {token}"}, timeout=15)
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"}, timeout=15)
+
 
 def scenario_nonce_replay():
     cfg = base_config(); token = _mint_bearer(cfg); nonce = "gate2-replay-" + uuid.uuid4().hex
@@ -324,29 +327,33 @@ def scenario_nonce_replay():
     first = _post4(cfg, body, token); second = _post4(cfg, body, token)
     try: err = (second.json().get("error") or second.json().get("reason_code") or "").lower()
     except Exception: err = second.text[:120]
-    record("B3 replayed nonce -> NONCE_REPLAY", second.status_code==401 and "nonce" in err,
+    record("B3 replayed nonce -> NONCE_REPLAY", second.status_code == 401 and "nonce" in err,
            f"first={first.status_code} second={second.status_code} {err!r}")
+
 
 def scenario_stale_timestamp():
     cfg = base_config(); token = _mint_bearer(cfg)
-    body = _valid_body(cfg, "gate2-stale-001", timestamp="2026-01-01T00:00:00Z")
+    body = _valid_body(cfg, "gate2-stale-" + uuid.uuid4().hex, timestamp="2026-01-01T00:00:00Z")
     r = _post4(cfg, body, token)
     try: err = (r.json().get("error") or "").lower()
     except Exception: err = r.text[:120]
-    record("B4 stale timestamp -> STALE_TIMESTAMP", r.status_code==400 and ("stale" in err or "timestamp" in err),
+    record("B4 stale timestamp -> STALE_TIMESTAMP", r.status_code == 400 and ("stale" in err or "timestamp" in err),
            f"{r.status_code} {err!r}")
+
 
 def scenario_opaque_token():
     cfg = base_config()
     try: token = _mint_bearer(cfg, resource="")
     except Exception as exc:
-        record("B5 opaque token -> BEARER_INVALID", True, f"SKIPPED — client won't mint without resource ({type(exc).__name__})"); return
-    r = _post4(cfg, _valid_body(cfg, "gate2-opaque-001"), token)
+        record("B5 opaque token -> BEARER_INVALID", True, f"SKIPPED - client won't mint without resource ({type(exc).__name__})"); return
+    r = _post4(cfg, _valid_body(cfg, "gate2-opaque-" + uuid.uuid4().hex), token)
     try: reason = (r.json().get("reason_code") or r.json().get("error") or "").upper()
     except Exception: reason = r.text[:120]
-    record("B5 opaque token -> BEARER_INVALID", r.status_code==401 and "BEARER" in reason, f"{r.status_code} {reason!r}")
+    record("B5 opaque token -> BEARER_INVALID", r.status_code == 401 and "BEARER" in reason, f"{r.status_code} {reason!r}")
+
 
 SCENARIOS = SCENARIOS + [scenario_nonce_replay, scenario_stale_timestamp, scenario_opaque_token]
+
 
 def main() -> None:
     for s in SCENARIOS:
