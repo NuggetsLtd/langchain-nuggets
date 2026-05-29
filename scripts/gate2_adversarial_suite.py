@@ -355,6 +355,121 @@ def scenario_opaque_token():
 SCENARIOS = SCENARIOS + [scenario_nonce_replay, scenario_stale_timestamp, scenario_opaque_token]
 
 
+# --- Category C — consumer-side proof verification (#161) -----------------
+# Proves the SDK independently verifies the authority's signed proof: a valid
+# proof verifies against the portal's published key, and any tampering is
+# rejected. Uses verify_authority_proof directly against a real dev proof.
+from langchain_nuggets.middleware import (  # noqa: E402
+    ProofVerificationError,
+    verify_authority_proof,
+)
+
+
+def _capture_real_proof(cfg):
+    """Run a real ALLOW (verification off so we keep the raw proof) and return
+    (signature, constraints_evaluated)."""
+    mw = NuggetsAuthorityMiddleware(cfg.model_copy(update={"verify_proofs": False}))
+    req = SimpleNamespace(
+        tool_call={
+            "name": env("NUGGETS_TOOL"),
+            "args": {"userId": "gate2-c", "target": os.environ.get("NUGGETS_TARGET", "kyc-service")},
+            "id": "gate2-c",
+        }
+    )
+    mw.wrap_tool_call(req, lambda _: ToolMessage(content='{"ok":true}', tool_call_id="gate2-c"))
+    if not mw.proofs:
+        raise RuntimeError("no proof emitted by baseline ALLOW")
+    p = mw.proofs[0]
+    return p.authority_signature, p.constraints_evaluated
+
+
+def _expected_for(cfg, constraints, **overrides):
+    exp = {
+        "decision": "ALLOW",
+        "agent_id": cfg.agent_id,
+        "controller_id": cfg.controller_id,
+        "constraints_evaluated": constraints,
+    }
+    exp.update(overrides)
+    return exp
+
+
+def scenario_proof_verifies():
+    cfg = base_config()
+    sig, constraints = _capture_real_proof(cfg)
+    try:
+        claims = verify_authority_proof(
+            sig, expected=_expected_for(cfg, constraints, proof_id=_proof_id(sig)),
+            oidc_issuer_url=cfg.oidc_issuer_url,
+        )
+        record("C0 real proof verifies", claims.get("decision") == "ALLOW", "verified")
+    except ProofVerificationError as exc:
+        record("C0 real proof verifies", False, f"unexpected reject: {exc}")
+
+
+def scenario_proof_id_swap_rejected():
+    cfg = base_config()
+    sig, constraints = _capture_real_proof(cfg)
+    try:
+        verify_authority_proof(
+            sig, expected=_expected_for(cfg, constraints, proof_id="not-the-real-proof-id"),
+            oidc_issuer_url=cfg.oidc_issuer_url,
+        )
+        record("C1 swapped proof_id rejected", False, "verifier accepted a mismatched proof_id")
+    except ProofVerificationError as exc:
+        record("C1 swapped proof_id rejected", "proof_id" in str(exc), str(exc)[:80])
+
+
+def scenario_constraints_tamper_rejected():
+    cfg = base_config()
+    sig, constraints = _capture_real_proof(cfg)
+    tampered = (constraints or []) + ["fabricated_constraint"]
+    try:
+        verify_authority_proof(
+            sig, expected=_expected_for(cfg, tampered, proof_id=_proof_id(sig)),
+            oidc_issuer_url=cfg.oidc_issuer_url,
+        )
+        record("C2 tampered constraints rejected", False, "verifier accepted tampered constraints")
+    except ProofVerificationError as exc:
+        record("C2 tampered constraints rejected", "constraints" in str(exc), str(exc)[:80])
+
+
+def scenario_wrong_key_proof_rejected():
+    """Re-sign the real proof's payload with an attacker key (same kid) — the
+    portal's published key won't match, so verification must fail."""
+    import jwt as _jwt
+
+    cfg = base_config()
+    sig, _ = _capture_real_proof(cfg)
+    header = _jwt.get_unverified_header(sig)
+    payload = _jwt.decode(sig, options={"verify_signature": False})
+    attacker = load_private_key(_wrong_key_jwk())
+    forged = _jwt.encode(payload, attacker, algorithm="RS256", headers={"kid": header.get("kid")})
+    try:
+        verify_authority_proof(
+            forged, expected=_expected_for(cfg, payload.get("constraints_evaluated") or [],
+                                           proof_id=payload.get("proof_id")),
+            oidc_issuer_url=cfg.oidc_issuer_url,
+        )
+        record("C3 wrong-key proof rejected", False, "verifier accepted an attacker-signed proof")
+    except ProofVerificationError as exc:
+        record("C3 wrong-key proof rejected", "signature" in str(exc), str(exc)[:80])
+
+
+def _proof_id(sig: str) -> str:
+    import jwt as _jwt
+
+    return _jwt.decode(sig, options={"verify_signature": False}).get("proof_id")
+
+
+SCENARIOS = SCENARIOS + [
+    scenario_proof_verifies,
+    scenario_proof_id_swap_rejected,
+    scenario_constraints_tamper_rejected,
+    scenario_wrong_key_proof_rejected,
+]
+
+
 def main() -> None:
     for s in SCENARIOS:
         try:
