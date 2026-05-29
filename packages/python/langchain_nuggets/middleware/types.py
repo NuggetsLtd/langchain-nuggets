@@ -29,6 +29,11 @@ class MiddlewareConfig(BaseModel):
     verify_ssl: bool = True
     test_mode: bool = False
     agent_private_key: Optional[Union[str, Dict[str, Any]]] = None
+    # #161: verify the authority's signed proof on every ALLOW, by default.
+    # The decision is only trustworthy if its signature checks out against the
+    # portal's published key. Disable only with a deliberate, loud opt-out
+    # (e.g. an offline/air-gapped harness that verifies proofs out-of-band).
+    verify_proofs: bool = True
 
     model_config = {"arbitrary_types_allowed": True}
 

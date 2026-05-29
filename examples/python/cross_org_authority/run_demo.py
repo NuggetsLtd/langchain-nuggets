@@ -154,6 +154,10 @@ def run():
         controller_id=ORG_B["id"],
         delegation_id="del-001",
         agent_private_key=_demo_key_pem,
+        # The offline mock authority signs proofs with a demo key and serves no
+        # did:web document, so default-on proof verification (#161) can't resolve
+        # a key. Opt out for the offline demo; real backends are verified by default.
+        verify_proofs=False,
     )
     middleware = NuggetsAuthorityMiddleware(config)
 

@@ -1,6 +1,10 @@
 """Nuggets Authority Middleware for LangChain/LangGraph tool call interception."""
 from langchain_nuggets.middleware.authority_middleware import NuggetsAuthorityMiddleware
 from langchain_nuggets.middleware.proof import build_proof_artifact, hash_parameters, hash_result
+from langchain_nuggets.middleware.proof_verification import (
+    ProofVerificationError,
+    verify_authority_proof,
+)
 from langchain_nuggets.middleware.types import (
     ActionContext,
     AuthorityDecision,
@@ -21,4 +25,6 @@ __all__ = [
     "build_proof_artifact",
     "hash_parameters",
     "hash_result",
+    "verify_authority_proof",
+    "ProofVerificationError",
 ]

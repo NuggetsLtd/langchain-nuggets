@@ -53,6 +53,9 @@ def main() -> None:
         delegation_id="42",
         agent_private_key=_demo_key_pem,
         on_proof=lambda proof: collected_proofs.append(proof),
+        # This demo mocks the HTTP client with a stub signature; default-on
+        # proof verification (#161) would fail-close it. Real backends verify.
+        verify_proofs=False,
     )
 
     middleware = NuggetsAuthorityMiddleware(config)
