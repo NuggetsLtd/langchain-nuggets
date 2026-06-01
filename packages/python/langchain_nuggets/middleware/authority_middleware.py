@@ -20,7 +20,9 @@ from langchain_nuggets.middleware.proof import (
 )
 from langchain_nuggets.middleware.proof_verification import (
     ProofVerificationError,
+    adiscover_authority,
     averify_authority_proof,
+    discover_authority,
     verify_authority_proof,
 )
 from langchain_nuggets.middleware.types import (
@@ -208,10 +210,16 @@ class NuggetsAuthorityMiddleware:
         if self._config.test_mode or not self._config.verify_proofs:
             return None
         try:
+            issuer, jwks_uri = discover_authority(
+                self._config.api_url,
+                verify_ssl=self._config.verify_ssl,
+                ca_cert=self._config.ca_cert,
+            )
             verify_authority_proof(
                 auth_response.signature,
                 expected=self._proof_expected(auth_response),
-                jwks_uri=self._authority_jwks_uri(),
+                issuer=issuer,
+                jwks_uri=jwks_uri,
                 verify_ssl=self._config.verify_ssl,
                 ca_cert=self._config.ca_cert,
             )
@@ -222,26 +230,27 @@ class NuggetsAuthorityMiddleware:
     async def _averify_proof_or_none(
         self, auth_response: AuthorityEvaluationResponse, tool_call_id: str, tool_name: str
     ) -> Optional[ToolMessage]:
-        """Async variant — fetches the JWKS with httpx.AsyncClient so it
+        """Async variant — discovers + fetches JWKS with httpx.AsyncClient so it
         doesn't block the event loop."""
         if self._config.test_mode or not self._config.verify_proofs:
             return None
         try:
+            issuer, jwks_uri = await adiscover_authority(
+                self._config.api_url,
+                verify_ssl=self._config.verify_ssl,
+                ca_cert=self._config.ca_cert,
+            )
             await averify_authority_proof(
                 auth_response.signature,
                 expected=self._proof_expected(auth_response),
-                jwks_uri=self._authority_jwks_uri(),
+                issuer=issuer,
+                jwks_uri=jwks_uri,
                 verify_ssl=self._config.verify_ssl,
                 ca_cert=self._config.ca_cert,
             )
             return None
         except ProofVerificationError as exc:
             return self._proof_failure_message(exc, tool_call_id, tool_name, auth_response.proof_id)
-
-    def _authority_jwks_uri(self) -> str:
-        """The authority's published proof-signing JWKS — the pinned trust
-        anchor for proof verification (RT-P1)."""
-        return f"{self._config.api_url.rstrip('/')}/.well-known/jwks.json"
 
     def _test_mode_response(self) -> AuthorityEvaluationResponse:
         return AuthorityEvaluationResponse(

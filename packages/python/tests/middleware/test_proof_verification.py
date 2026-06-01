@@ -1,10 +1,11 @@
 """Tests for consumer-side authority proof verification (#161, RT-P1).
 
-Verification is pinned to the authority's published JWKS endpoint
-(`{api_url}/.well-known/jwks.json`). The proof's claimed `iss` is ignored
-for key selection — the pinned endpoint is the trust anchor — so an
-attacker-signed proof is rejected even if its `iss` resolves to the
-attacker's own valid DID (RT-P1).
+Discover-and-pin model: the SDK discovers the authority's `issuer` + `jwks_uri`
+from `{api_url}/.well-known/authority-configuration` (anchored on the trusted
+api_url host), pins `proof.iss == issuer` (the VC-idiomatic issuer check), and
+verifies the JWS signature against the keys at `jwks_uri`. Closes RT-P1: an
+attacker's proof is rejected at the issuer pin (foreign iss) and/or because its
+key isn't at the discovered jwks_uri.
 """
 import json
 import time
@@ -19,21 +20,24 @@ from jwt.algorithms import RSAAlgorithm
 
 from langchain_nuggets.middleware.proof_verification import (
     ProofVerificationError,
-    _reset_jwks_cache,
+    _reset_caches,
     averify_authority_proof,
+    discover_authority,
     verify_authority_proof,
 )
 
 API_URL = "https://accounts-dev.test"
+DISCOVERY_URI = f"{API_URL}/.well-known/authority-configuration"
 JWKS_URI = f"{API_URL}/.well-known/jwks.json"
+ISSUER = "did:web:auth-dev.test:sUn1FcjL6CHMm-aqB_kXV"
 KID = "portal-key-1"
 
 
 @pytest.fixture(autouse=True)
-def _clear_cache():
-    _reset_jwks_cache()
+def _clear_caches():
+    _reset_caches()
     yield
-    _reset_jwks_cache()
+    _reset_caches()
 
 
 @pytest.fixture(scope="module")
@@ -66,11 +70,11 @@ def _sign_proof(priv, claims=None, kid=KID):
         "constraints_evaluated": ["not_revoked", "tool_allowed"],
         "decision": "ALLOW",
         "iat": int(time.time()),
-        # An issuer the verifier must IGNORE for key selection.
-        "iss": "did:web:auth-dev.test:sUn1FcjL6CHMm-aqB_kXV",
+        "iss": ISSUER,  # matches the discovered issuer by default
     }
     payload.update(claims or {})
-    return jwt.encode(payload, _pem(priv), algorithm="RS256", headers={"kid": kid})
+    headers = {"kid": kid} if kid is not None else {}
+    return jwt.encode(payload, _pem(priv), algorithm="RS256", headers=headers)
 
 
 def _expected(**overrides):
@@ -85,39 +89,97 @@ def _expected(**overrides):
     return exp
 
 
+def _verify(sig, **kw):
+    return verify_authority_proof(
+        sig, expected=kw.pop("expected", _expected()), issuer=ISSUER, jwks_uri=JWKS_URI, **kw
+    )
+
+
+# --- discovery ------------------------------------------------------------
+
 @respx.mock
-def test_valid_proof_verifies_against_pinned_jwks(portal_key):
+def test_discover_authority_returns_issuer_and_jwks(portal_key):
+    respx.get(DISCOVERY_URI).mock(
+        return_value=Response(200, json={"issuer": ISSUER, "jwks_uri": JWKS_URI})
+    )
+    issuer, jwks_uri = discover_authority(API_URL)
+    assert issuer == ISSUER
+    assert jwks_uri == JWKS_URI
+
+
+@respx.mock
+def test_discover_authority_cached(portal_key):
+    route = respx.get(DISCOVERY_URI).mock(
+        return_value=Response(200, json={"issuer": ISSUER, "jwks_uri": JWKS_URI})
+    )
+    discover_authority(API_URL)
+    discover_authority(API_URL)
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_discover_authority_fetch_failure_fails_closed():
+    respx.get(DISCOVERY_URI).mock(return_value=Response(503))
+    with pytest.raises(ProofVerificationError, match="authority discovery failed"):
+        discover_authority(API_URL)
+
+
+# --- verification ---------------------------------------------------------
+
+@respx.mock
+def test_valid_proof_verifies(portal_key):
     respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
-    sig = _sign_proof(portal_key["priv"])
-    claims = verify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
+    claims = _verify(_sign_proof(portal_key["priv"]))
     assert claims["proof_id"] == "proof-1"
     assert claims["decision"] == "ALLOW"
 
 
 @respx.mock
-def test_attacker_signed_with_resolvable_iss_rejected(portal_key):
-    # RT-P1: the proof is signed by an attacker key and its iss would resolve to
-    # the attacker's own valid DID — but the key isn't in the pinned JWKS, so it
-    # must be rejected regardless of iss.
+def test_issuer_mismatch_rejected_even_with_valid_key(portal_key):
+    # C3b: signed by the REAL portal key, but the proof's iss has been tampered.
+    # Pin must reject it before/independent of the signature being valid.
+    respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
+    sig = _sign_proof(portal_key["priv"], {"iss": "did:web:attacker.test:evil"})
+    with pytest.raises(ProofVerificationError, match="issuer mismatch"):
+        _verify(sig)
+
+
+@respx.mock
+def test_attacker_key_with_pinned_iss_rejected(portal_key):
+    # RT-P1: attacker copies the expected iss but signs with their own key —
+    # rejected because the key isn't in the discovered jwks.
     respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
     attacker = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    sig = _sign_proof(attacker, {"iss": "did:web:attacker.test:evil"})
-    with pytest.raises(ProofVerificationError, match="no key in pinned JWKS|signature verification failed"):
-        verify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
+    sig = _sign_proof(attacker)  # iss == ISSUER, but wrong key
+    with pytest.raises(ProofVerificationError, match="signature verification failed"):
+        _verify(sig)
 
 
 @respx.mock
 def test_jwks_fetch_failure_fails_closed(portal_key):
     respx.get(JWKS_URI).mock(return_value=Response(503))
-    sig = _sign_proof(portal_key["priv"])
     with pytest.raises(ProofVerificationError, match="JWKS fetch failed"):
-        verify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
+        _verify(_sign_proof(portal_key["priv"]))
+
+
+@respx.mock
+def test_kid_no_match_falls_back_to_all_keys(portal_key):
+    # Proof header names an unknown kid, but its key IS published — fall back to
+    # trying all keys (rotation / kid-less). Verifies.
+    respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
+    sig = _sign_proof(portal_key["priv"], kid="unknown-kid")
+    assert _verify(sig)["decision"] == "ALLOW"
+
+
+@respx.mock
+def test_no_kid_falls_back_to_all_keys(portal_key):
+    respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
+    sig = _sign_proof(portal_key["priv"], kid=None)
+    assert _verify(sig)["decision"] == "ALLOW"
 
 
 @respx.mock
 def test_rotated_key_in_published_set_verifies(portal_key):
-    # JWKS publishes a retired key plus the current signing key; a proof signed
-    # by either verifies.
     retired = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     retired_jwk = json.loads(RSAAlgorithm.to_jwk(retired.public_key()))
     retired_jwk.update({"kid": "retired-k0", "alg": "RS256"})
@@ -125,40 +187,28 @@ def test_rotated_key_in_published_set_verifies(portal_key):
         return_value=Response(200, json=_jwks(retired_jwk, portal_key["public_jwk"]))
     )
     sig = _sign_proof(retired, kid="retired-k0")
-    claims = verify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
-    assert claims["decision"] == "ALLOW"
-
-
-@respx.mock
-def test_kid_not_in_jwks_fails_closed(portal_key):
-    respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
-    sig = _sign_proof(portal_key["priv"], kid="some-other-kid")
-    with pytest.raises(ProofVerificationError, match="no key in pinned JWKS"):
-        verify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
+    assert _verify(sig)["decision"] == "ALLOW"
 
 
 @respx.mock
 def test_decision_mismatch_rejected(portal_key):
     respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
-    sig = _sign_proof(portal_key["priv"])
     with pytest.raises(ProofVerificationError, match="decision mismatch"):
-        verify_authority_proof(sig, expected=_expected(decision="DENY"), jwks_uri=JWKS_URI)
+        _verify(_sign_proof(portal_key["priv"]), expected=_expected(decision="DENY"))
 
 
 @respx.mock
 def test_proof_id_swap_rejected(portal_key):
     respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
-    sig = _sign_proof(portal_key["priv"], {"proof_id": "another-call"})
     with pytest.raises(ProofVerificationError, match="proof_id mismatch"):
-        verify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
+        _verify(_sign_proof(portal_key["priv"], {"proof_id": "another-call"}))
 
 
 @respx.mock
 def test_constraints_mismatch_rejected(portal_key):
     respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
-    sig = _sign_proof(portal_key["priv"], {"constraints_evaluated": ["not_revoked"]})
     with pytest.raises(ProofVerificationError, match="constraints_evaluated mismatch"):
-        verify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
+        _verify(_sign_proof(portal_key["priv"], {"constraints_evaluated": ["not_revoked"]}))
 
 
 @respx.mock
@@ -167,25 +217,27 @@ def test_jwks_cached_across_calls(portal_key):
         return_value=Response(200, json=_jwks(portal_key["public_jwk"]))
     )
     sig = _sign_proof(portal_key["priv"])
-    verify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
-    verify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
-    assert route.call_count == 1  # second call served from cache
+    _verify(sig)
+    _verify(sig)
+    assert route.call_count == 1
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_async_valid_proof_verifies(portal_key):
     respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
-    sig = _sign_proof(portal_key["priv"])
-    claims = await averify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
+    claims = await averify_authority_proof(
+        _sign_proof(portal_key["priv"]), expected=_expected(), issuer=ISSUER, jwks_uri=JWKS_URI
+    )
     assert claims["proof_id"] == "proof-1"
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_async_attacker_signed_rejected(portal_key):
+async def test_async_issuer_mismatch_rejected(portal_key):
     respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
-    attacker = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    sig = _sign_proof(attacker)
-    with pytest.raises(ProofVerificationError):
-        await averify_authority_proof(sig, expected=_expected(), jwks_uri=JWKS_URI)
+    sig = _sign_proof(portal_key["priv"], {"iss": "did:web:attacker.test:evil"})
+    with pytest.raises(ProofVerificationError, match="issuer mismatch"):
+        await averify_authority_proof(
+            sig, expected=_expected(), issuer=ISSUER, jwks_uri=JWKS_URI
+        )

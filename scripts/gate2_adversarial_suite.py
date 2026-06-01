@@ -361,8 +361,14 @@ SCENARIOS = SCENARIOS + [scenario_nonce_replay, scenario_stale_timestamp, scenar
 # rejected. Uses verify_authority_proof directly against a real dev proof.
 from langchain_nuggets.middleware import (  # noqa: E402
     ProofVerificationError,
+    discover_authority,
     verify_authority_proof,
 )
+
+
+def _disc(cfg):
+    """Discover (issuer, jwks_uri) for the authority — what the SDK pins to."""
+    return discover_authority(cfg.api_url, verify_ssl=cfg.verify_ssl, ca_cert=cfg.ca_cert)
 
 
 def _capture_real_proof(cfg):
@@ -396,11 +402,12 @@ def _expected_for(cfg, constraints, **overrides):
 
 def scenario_proof_verifies():
     cfg = base_config()
+    _issuer, _jwks_uri = _disc(cfg)
     sig, constraints = _capture_real_proof(cfg)
     try:
         claims = verify_authority_proof(
             sig, expected=_expected_for(cfg, constraints, proof_id=_proof_id(sig)),
-            jwks_uri=cfg.api_url.rstrip("/") + "/.well-known/jwks.json",
+            issuer=_issuer, jwks_uri=_jwks_uri,
         )
         record("C0 real proof verifies", claims.get("decision") == "ALLOW", "verified")
     except ProofVerificationError as exc:
@@ -409,11 +416,12 @@ def scenario_proof_verifies():
 
 def scenario_proof_id_swap_rejected():
     cfg = base_config()
+    _issuer, _jwks_uri = _disc(cfg)
     sig, constraints = _capture_real_proof(cfg)
     try:
         verify_authority_proof(
             sig, expected=_expected_for(cfg, constraints, proof_id="not-the-real-proof-id"),
-            jwks_uri=cfg.api_url.rstrip("/") + "/.well-known/jwks.json",
+            issuer=_issuer, jwks_uri=_jwks_uri,
         )
         record("C1 swapped proof_id rejected", False, "verifier accepted a mismatched proof_id")
     except ProofVerificationError as exc:
@@ -422,12 +430,13 @@ def scenario_proof_id_swap_rejected():
 
 def scenario_constraints_tamper_rejected():
     cfg = base_config()
+    _issuer, _jwks_uri = _disc(cfg)
     sig, constraints = _capture_real_proof(cfg)
     tampered = (constraints or []) + ["fabricated_constraint"]
     try:
         verify_authority_proof(
             sig, expected=_expected_for(cfg, tampered, proof_id=_proof_id(sig)),
-            jwks_uri=cfg.api_url.rstrip("/") + "/.well-known/jwks.json",
+            issuer=_issuer, jwks_uri=_jwks_uri,
         )
         record("C2 tampered constraints rejected", False, "verifier accepted tampered constraints")
     except ProofVerificationError as exc:
@@ -435,11 +444,12 @@ def scenario_constraints_tamper_rejected():
 
 
 def scenario_wrong_key_proof_rejected():
-    """Re-sign the real proof's payload with an attacker key (same kid) — the
-    portal's published key won't match, so verification must fail."""
+    """Re-sign the real proof's payload with an attacker key (same kid, same
+    iss) — the key isn't in the discovered JWKS, so verification must fail."""
     import jwt as _jwt
 
     cfg = base_config()
+    _issuer, _jwks_uri = _disc(cfg)
     sig, _ = _capture_real_proof(cfg)
     header = _jwt.get_unverified_header(sig)
     payload = _jwt.decode(sig, options={"verify_signature": False})
@@ -449,11 +459,40 @@ def scenario_wrong_key_proof_rejected():
         verify_authority_proof(
             forged, expected=_expected_for(cfg, payload.get("constraints_evaluated") or [],
                                            proof_id=payload.get("proof_id")),
-            jwks_uri=cfg.api_url.rstrip("/") + "/.well-known/jwks.json",
+            issuer=_issuer, jwks_uri=_jwks_uri,
         )
         record("C3 wrong-key proof rejected", False, "verifier accepted an attacker-signed proof")
     except ProofVerificationError as exc:
         record("C3 wrong-key proof rejected", "signature" in str(exc), str(exc)[:80])
+
+
+def scenario_iss_tamper_rejected():
+    """C3b: the real proof (correct key) with a tampered `iss` — must be
+    rejected at the issuer pin, independent of the signature."""
+    import jwt as _jwt
+
+    cfg = base_config()
+    _issuer, _jwks_uri = _disc(cfg)
+    sig, constraints = _capture_real_proof(cfg)
+    header = _jwt.get_unverified_header(sig)
+    payload = _jwt.decode(sig, options={"verify_signature": False})
+    payload["iss"] = "did:web:attacker.test:evil"
+    # Re-sign with the real agent key only to keep it a well-formed JWS; the
+    # issuer pin must reject it before signature even matters. (Any signer
+    # works — the pin is checked first.)
+    forged_iss = _jwt.encode(
+        payload, load_private_key(_load_key()), algorithm="RS256",
+        headers={"kid": header.get("kid")},
+    )
+    try:
+        verify_authority_proof(
+            forged_iss,
+            expected=_expected_for(cfg, constraints, proof_id=payload.get("proof_id")),
+            issuer=_issuer, jwks_uri=_jwks_uri,
+        )
+        record("C3b tampered iss rejected", False, "verifier accepted a foreign iss")
+    except ProofVerificationError as exc:
+        record("C3b tampered iss rejected", "issuer mismatch" in str(exc), str(exc)[:80])
 
 
 def _proof_id(sig: str) -> str:
@@ -467,6 +506,7 @@ SCENARIOS = SCENARIOS + [
     scenario_proof_id_swap_rejected,
     scenario_constraints_tamper_rejected,
     scenario_wrong_key_proof_rejected,
+    scenario_iss_tamper_rejected,
 ]
 
 

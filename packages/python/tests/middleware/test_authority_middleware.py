@@ -201,14 +201,24 @@ class TestProofVerificationDefaultOn:
 
     @respx.mock
     def test_verifiable_proof_passes_through(self, rsa_keypair, mock_request, mock_handler):
-        from langchain_nuggets.middleware.proof_verification import _reset_jwks_cache
+        from langchain_nuggets.middleware.proof_verification import _reset_caches
 
-        _reset_jwks_cache()
+        _reset_caches()
         kid = "portal-k1"
+        issuer = "did:web:auth.nuggets.test:portalC1"
         portal = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_jwk = json.loads(RSAAlgorithm.to_jwk(portal.public_key()))
         public_jwk.update({"kid": kid, "alg": "RS256"})
-        # The middleware pins to {api_url}/.well-known/jwks.json.
+        # The middleware discovers issuer+jwks_uri, then verifies against jwks.
+        respx.get("https://api.nuggets.test/.well-known/authority-configuration").mock(
+            return_value=Response(
+                200,
+                json={
+                    "issuer": issuer,
+                    "jwks_uri": "https://api.nuggets.test/.well-known/jwks.json",
+                },
+            )
+        )
         respx.get("https://api.nuggets.test/.well-known/jwks.json").mock(
             return_value=Response(200, json={"keys": [public_jwk]})
         )
@@ -225,7 +235,7 @@ class TestProofVerificationDefaultOn:
                 "constraints_evaluated": ["tool_allowed"],
                 "decision": "ALLOW",
                 "iat": int(time.time()),
-                "iss": "did:web:whatever.test:ignored",
+                "iss": issuer,
             },
             portal_pem,
             algorithm="RS256",

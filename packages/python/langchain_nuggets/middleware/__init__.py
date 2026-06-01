@@ -3,6 +3,9 @@ from langchain_nuggets.middleware.authority_middleware import NuggetsAuthorityMi
 from langchain_nuggets.middleware.proof import build_proof_artifact, hash_parameters, hash_result
 from langchain_nuggets.middleware.proof_verification import (
     ProofVerificationError,
+    adiscover_authority,
+    averify_authority_proof,
+    discover_authority,
     verify_authority_proof,
 )
 from langchain_nuggets.middleware.types import (
@@ -26,5 +29,8 @@ __all__ = [
     "hash_parameters",
     "hash_result",
     "verify_authority_proof",
+    "averify_authority_proof",
+    "discover_authority",
+    "adiscover_authority",
     "ProofVerificationError",
 ]
