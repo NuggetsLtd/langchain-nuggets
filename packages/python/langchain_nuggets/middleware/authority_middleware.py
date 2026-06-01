@@ -211,7 +211,7 @@ class NuggetsAuthorityMiddleware:
             verify_authority_proof(
                 auth_response.signature,
                 expected=self._proof_expected(auth_response),
-                oidc_issuer_url=self._config.oidc_issuer_url,
+                jwks_uri=self._authority_jwks_uri(),
                 verify_ssl=self._config.verify_ssl,
                 ca_cert=self._config.ca_cert,
             )
@@ -222,21 +222,26 @@ class NuggetsAuthorityMiddleware:
     async def _averify_proof_or_none(
         self, auth_response: AuthorityEvaluationResponse, tool_call_id: str, tool_name: str
     ) -> Optional[ToolMessage]:
-        """Async variant — uses httpx.AsyncClient so DID resolution doesn't
-        block the event loop."""
+        """Async variant — fetches the JWKS with httpx.AsyncClient so it
+        doesn't block the event loop."""
         if self._config.test_mode or not self._config.verify_proofs:
             return None
         try:
             await averify_authority_proof(
                 auth_response.signature,
                 expected=self._proof_expected(auth_response),
-                oidc_issuer_url=self._config.oidc_issuer_url,
+                jwks_uri=self._authority_jwks_uri(),
                 verify_ssl=self._config.verify_ssl,
                 ca_cert=self._config.ca_cert,
             )
             return None
         except ProofVerificationError as exc:
             return self._proof_failure_message(exc, tool_call_id, tool_name, auth_response.proof_id)
+
+    def _authority_jwks_uri(self) -> str:
+        """The authority's published proof-signing JWKS — the pinned trust
+        anchor for proof verification (RT-P1)."""
+        return f"{self._config.api_url.rstrip('/')}/.well-known/jwks.json"
 
     def _test_mode_response(self) -> AuthorityEvaluationResponse:
         return AuthorityEvaluationResponse(

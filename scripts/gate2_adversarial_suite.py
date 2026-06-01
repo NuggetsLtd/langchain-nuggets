@@ -400,7 +400,7 @@ def scenario_proof_verifies():
     try:
         claims = verify_authority_proof(
             sig, expected=_expected_for(cfg, constraints, proof_id=_proof_id(sig)),
-            oidc_issuer_url=cfg.oidc_issuer_url,
+            jwks_uri=cfg.api_url.rstrip("/") + "/.well-known/jwks.json",
         )
         record("C0 real proof verifies", claims.get("decision") == "ALLOW", "verified")
     except ProofVerificationError as exc:
@@ -413,7 +413,7 @@ def scenario_proof_id_swap_rejected():
     try:
         verify_authority_proof(
             sig, expected=_expected_for(cfg, constraints, proof_id="not-the-real-proof-id"),
-            oidc_issuer_url=cfg.oidc_issuer_url,
+            jwks_uri=cfg.api_url.rstrip("/") + "/.well-known/jwks.json",
         )
         record("C1 swapped proof_id rejected", False, "verifier accepted a mismatched proof_id")
     except ProofVerificationError as exc:
@@ -427,7 +427,7 @@ def scenario_constraints_tamper_rejected():
     try:
         verify_authority_proof(
             sig, expected=_expected_for(cfg, tampered, proof_id=_proof_id(sig)),
-            oidc_issuer_url=cfg.oidc_issuer_url,
+            jwks_uri=cfg.api_url.rstrip("/") + "/.well-known/jwks.json",
         )
         record("C2 tampered constraints rejected", False, "verifier accepted tampered constraints")
     except ProofVerificationError as exc:
@@ -449,7 +449,7 @@ def scenario_wrong_key_proof_rejected():
         verify_authority_proof(
             forged, expected=_expected_for(cfg, payload.get("constraints_evaluated") or [],
                                            proof_id=payload.get("proof_id")),
-            oidc_issuer_url=cfg.oidc_issuer_url,
+            jwks_uri=cfg.api_url.rstrip("/") + "/.well-known/jwks.json",
         )
         record("C3 wrong-key proof rejected", False, "verifier accepted an attacker-signed proof")
     except ProofVerificationError as exc:

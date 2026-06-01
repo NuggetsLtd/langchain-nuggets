@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.0]
+
+### Changed
+
+- **Proof verification is now pinned to the authority's JWKS endpoint (RT-P1).** The SDK verifies an ALLOW proof's signature against the key set published at `{api_url}/.well-known/jwks.json` (cached, short TTL; honours `verify_ssl`/`ca_cert`) instead of resolving the proof's own `iss` DID. The proof's `iss` is ignored for key selection — the pinned endpoint is the trust anchor. This closes RT-P1 with no residual: a proof signed by an attacker's key is rejected because it isn't in the pinned set, **even if its `iss` resolves to the attacker's own valid DID**. Verifies today's `did:nuggets:oidc:` and post-#174 `did:web:` proofs identically.
+- The exported `verify_authority_proof()` / `averify_authority_proof()` now take a `jwks_uri` (the authority's public JWKS endpoint) in place of the issuer-URL / DID arguments. Third-party out-of-band verification supplies the authority's `jwks_uri`.
+
+### Removed
+
+- did:web `iss` resolution, the `authority_issuer_did` config field + issuer-DID pin, the issuer host-pin, and the `did:nuggets:oidc:`→`did:web` fallback — all obsolete under JWKS-pin. Net: less code, no per-env secret, no new required config.
+
+### Notes
+
+- Default-on, fail-closed, claim binding (decision/proof_id/agent_id/controller_id/constraints_evaluated), async path, and TLS threading are unchanged. `test_mode` / `verify_proofs=False` still skip verification.
+- Rotation-safe: the JWKS endpoint publishes current + retired authority keys, so proofs signed by a retired-but-published key still verify.
+
 ## [0.5.0]
 
 ### Added
