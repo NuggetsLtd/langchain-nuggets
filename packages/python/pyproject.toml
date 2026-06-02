@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langchain-nuggets"
-version = "0.5.0"
+version = "0.6.0"
 description = "Nuggets authority middleware for LangChain / LangGraph"
 readme = "README.md"
 license = "MIT"

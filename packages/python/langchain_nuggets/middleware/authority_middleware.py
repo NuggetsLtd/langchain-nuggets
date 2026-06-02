@@ -20,7 +20,9 @@ from langchain_nuggets.middleware.proof import (
 )
 from langchain_nuggets.middleware.proof_verification import (
     ProofVerificationError,
+    adiscover_authority,
     averify_authority_proof,
+    discover_authority,
     verify_authority_proof,
 )
 from langchain_nuggets.middleware.types import (
@@ -208,10 +210,16 @@ class NuggetsAuthorityMiddleware:
         if self._config.test_mode or not self._config.verify_proofs:
             return None
         try:
+            issuer, jwks_uri = discover_authority(
+                self._config.api_url,
+                verify_ssl=self._config.verify_ssl,
+                ca_cert=self._config.ca_cert,
+            )
             verify_authority_proof(
                 auth_response.signature,
                 expected=self._proof_expected(auth_response),
-                oidc_issuer_url=self._config.oidc_issuer_url,
+                issuer=issuer,
+                jwks_uri=jwks_uri,
                 verify_ssl=self._config.verify_ssl,
                 ca_cert=self._config.ca_cert,
             )
@@ -222,15 +230,21 @@ class NuggetsAuthorityMiddleware:
     async def _averify_proof_or_none(
         self, auth_response: AuthorityEvaluationResponse, tool_call_id: str, tool_name: str
     ) -> Optional[ToolMessage]:
-        """Async variant — uses httpx.AsyncClient so DID resolution doesn't
-        block the event loop."""
+        """Async variant — discovers + fetches JWKS with httpx.AsyncClient so it
+        doesn't block the event loop."""
         if self._config.test_mode or not self._config.verify_proofs:
             return None
         try:
+            issuer, jwks_uri = await adiscover_authority(
+                self._config.api_url,
+                verify_ssl=self._config.verify_ssl,
+                ca_cert=self._config.ca_cert,
+            )
             await averify_authority_proof(
                 auth_response.signature,
                 expected=self._proof_expected(auth_response),
-                oidc_issuer_url=self._config.oidc_issuer_url,
+                issuer=issuer,
+                jwks_uri=jwks_uri,
                 verify_ssl=self._config.verify_ssl,
                 ca_cert=self._config.ca_cert,
             )
