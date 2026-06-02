@@ -222,11 +222,40 @@ def scenario_revoked_delegation() -> None:
 
 
 def scenario_foreign_delegation() -> None:
+    name = "A6 delegation belongs to another agent"
     d = os.environ.get("NUGGETS_OTHER_AGENT_DELEGATION_ID")
     if not d:
-        record("A6 delegation belongs to another agent", True, "SKIPPED (set NUGGETS_OTHER_AGENT_DELEGATION_ID)")
+        record(name, True, "SKIPPED (set NUGGETS_OTHER_AGENT_DELEGATION_ID)")
         return
-    expect_deny("A6 foreign delegation", run_tool_call(base_config(delegation_id=d), env("NUGGETS_TOOL"), os.environ.get("NUGGETS_TARGET")), "DELEGATION_AGENT_MISMATCH")
+    # Like A1's proof-failure path, the agent-mismatch gate returns a 403 with
+    # an {error} body (no reason_code), so it surfaces through the middleware
+    # as ERROR — assert against the raw HTTP instead. Use a real bearer + a
+    # valid agent_proof for OUR agent so the request reaches the delegation
+    # ownership check (route.ts ~L676) rather than failing earlier.
+    cfg = base_config()
+    token = _mint_bearer(cfg)
+    nonce = "gate2-foreign-" + uuid.uuid4().hex
+    body = {
+        "agent_id": cfg.agent_id,
+        "controller_id": cfg.controller_id,
+        "delegation_id": d,
+        "agent_proof": sign_agent_proof(load_private_key(_load_key()), cfg.agent_id, nonce),
+        "action": {
+            "tool": env("NUGGETS_TOOL"),
+            "target": os.environ.get("NUGGETS_TARGET", "kyc-service"),
+            "nonce": nonce,
+            "timestamp": _now_iso(),
+            "parameters_hash": "gate2",
+            "intent_hash": "gate2",
+        },
+    }
+    r = _post4(cfg, body, token)
+    try:
+        err = (r.json().get("error") or "").lower()
+    except Exception:
+        err = r.text[:120]
+    ok = r.status_code == 403 and ("does not belong" in err or "mismatch" in err)
+    record(name, ok, f"{r.status_code} {err!r}")
 
 
 def scenario_cap_exceeded() -> None:
