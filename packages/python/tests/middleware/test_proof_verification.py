@@ -124,6 +124,47 @@ def test_discover_authority_fetch_failure_fails_closed():
         discover_authority(API_URL)
 
 
+@respx.mock
+def test_discover_rejects_offhost_jwks_uri():
+    # SSRF guard: the discovery doc must not point verification at a foreign
+    # JWKS origin. jwks_uri must share scheme+host with the discovery URL.
+    respx.get(DISCOVERY_URI).mock(
+        return_value=Response(200, json={"issuer": ISSUER, "jwks_uri": "https://evil.test/jwks.json"})
+    )
+    with pytest.raises(ProofVerificationError, match="jwks_uri host"):
+        discover_authority(API_URL)
+
+
+@respx.mock
+def test_discover_rejects_non_string_fields():
+    respx.get(DISCOVERY_URI).mock(
+        return_value=Response(200, json={"issuer": 123, "jwks_uri": JWKS_URI})
+    )
+    with pytest.raises(ProofVerificationError, match="missing issuer/jwks_uri"):
+        discover_authority(API_URL)
+
+
+@respx.mock
+def test_issuer_pin_runs_despite_exp_claim(portal_key):
+    # Pre-parse of iss must not perform exp/claim validation. A foreign-iss
+    # proof carrying a (past) exp must still be rejected at the issuer pin,
+    # not surface as an opaque decode error.
+    respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
+    sig = _sign_proof(
+        portal_key["priv"],
+        {"iss": "did:web:attacker.test:evil", "exp": int(time.time()) - 3600},
+    )
+    with pytest.raises(ProofVerificationError, match="issuer mismatch"):
+        _verify(sig)
+
+
+@respx.mock
+def test_jwks_all_non_dict_keys_clean_error(portal_key):
+    respx.get(JWKS_URI).mock(return_value=Response(200, json={"keys": [123, "nope"]}))
+    with pytest.raises(ProofVerificationError, match="no usable key"):
+        _verify(_sign_proof(portal_key["priv"]))
+
+
 # --- verification ---------------------------------------------------------
 
 @respx.mock

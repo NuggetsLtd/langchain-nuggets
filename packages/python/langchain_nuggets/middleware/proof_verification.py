@@ -75,9 +75,17 @@ def _parse_discovery(resp: httpx.Response, url: str) -> Tuple[str, str]:
         raise ProofVerificationError(f"authority discovery at {url} is not JSON: {exc}") from exc
     issuer = body.get("issuer") if isinstance(body, dict) else None
     jwks_uri = body.get("jwks_uri") if isinstance(body, dict) else None
-    if not issuer or not jwks_uri:
+    if not isinstance(issuer, str) or not issuer or not isinstance(jwks_uri, str) or not jwks_uri:
+        raise ProofVerificationError(f"authority discovery at {url} missing issuer/jwks_uri")
+    # SSRF guard: the discovery doc is trusted only because it's served from the
+    # configured api_url host — so the jwks_uri it names must live on that same
+    # origin. A foreign jwks_uri (scheme/host) is rejected; we won't fetch keys
+    # from an origin the SDK wasn't pointed at.
+    disc, jwks = httpx.URL(url), httpx.URL(jwks_uri)
+    if (jwks.scheme, jwks.host) != (disc.scheme, disc.host):
         raise ProofVerificationError(
-            f"authority discovery at {url} missing issuer/jwks_uri"
+            f"discovery jwks_uri host {jwks.host!r} ({jwks.scheme}) does not match "
+            f"the api_url host {disc.host!r} ({disc.scheme})"
         )
     return issuer, jwks_uri
 
@@ -170,8 +178,20 @@ def _decode_header(signature: str) -> Dict[str, Any]:
 
 
 def _unverified_iss(signature: str) -> str:
+    # Pre-parse only: extract iss without signature OR claim validation. PyJWT
+    # may otherwise enforce exp/nbf/iat/aud when present, which is irrelevant to
+    # issuer pinning (the verifying decode below does the real claim checks).
     try:
-        iss = jwt.decode(signature, options={"verify_signature": False}).get("iss")
+        iss = jwt.decode(
+            signature,
+            options={
+                "verify_signature": False,
+                "verify_exp": False,
+                "verify_nbf": False,
+                "verify_iat": False,
+                "verify_aud": False,
+            },
+        ).get("iss")
     except Exception as exc:
         raise ProofVerificationError(f"proof is not a decodable JWS: {exc}") from exc
     if not iss:
@@ -182,14 +202,19 @@ def _unverified_iss(signature: str) -> str:
 def _verify_signature_against_keys(
     signature: str, keys: List[Dict[str, Any]], kid: Optional[str]
 ) -> Dict[str, Any]:
+    candidates = _candidate_keys(keys, kid)
+    if not candidates:
+        raise ProofVerificationError("no usable key in JWKS (no RSA public JWKs)")
     last_err: Optional[Exception] = None
-    for jwk in _candidate_keys(keys, kid):
+    for jwk in candidates:
         try:
             public_key = RSAAlgorithm.from_jwk(json.dumps(jwk))
             return jwt.decode(signature, key=public_key, algorithms=["RS256"])
         except Exception as exc:  # try the next published key
             last_err = exc
-    raise ProofVerificationError(f"proof signature verification failed: {last_err}")
+    raise ProofVerificationError(
+        f"proof signature verification failed: {last_err}"
+    ) from last_err
 
 
 def _verify_core(
