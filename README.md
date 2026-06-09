@@ -27,6 +27,22 @@ Most agent middleware shapes *prompts* or guardrails *outputs*. Nuggets Authorit
 
 Built on [Nuggets](https://nuggets.life) — the decentralized identity and verifiable-trust infrastructure already used for self-sovereign identity and verifiable credentials, now applied to AI agents.
 
+### Beyond identity and policy
+
+Enterprise identity (SSO) proves *who* an agent is. Operational policy and guardrail layers constrain *what* it may do and emit logs. Neither answers the question that matters for accountable agent actions: **who authorised this agent to take this specific action — and can anyone prove it afterwards?**
+
+| Question | Identity / SSO | Policy / guardrails | Nuggets Authority |
+|----------|:-:|:-:|:-:|
+| Who is the user / agent? | ✅ | — | — |
+| What may the agent access? | — | ✅ | — |
+| **Who authorised this action?** | — | — | ✅ |
+| **Was it within the delegated scope?** | — | — | ✅ |
+| Evidence it produces | — | internal logs | cryptographic proof |
+| Independently verifiable? | — | — | ✅ |
+| Reveals only hashes, not raw data? | — | — | ✅ |
+
+Nuggets **complements** your identity provider and policy layer rather than replacing them — authenticate and constrain as you do today, and Nuggets binds **delegated authority, intent, and a tamper-evident proof** to each action, enforced fail-closed before the tool runs. Proofs are signed and verifiable by any party against the authority's published keys — no callback to a Nuggets service required — and reference hashes of parameters and results, never the raw data.
+
 ## Install
 
 ```bash
