@@ -26,7 +26,7 @@ Most agent middleware shapes *prompts* or guardrails *outputs*. Nuggets Authorit
 - **Drop-in for LangChain & LangGraph.** Works with both `ToolNode` and `create_agent` in a few lines — no changes to your tools.
 - **Run it your way.** Hosted Nuggets, or self-hosted against your own deployment with a private CA.
 
-Built on [Nuggets](https://nuggets.life) — the decentralized identity and verifiable-trust infrastructure already used for self-sovereign identity and verifiable credentials, now applied to AI agents.
+Built on [Nuggets](https://nuggets.life), the universal trust infrastructure for autonomous AI. Nuggets governs at the point of execution.
 
 ### Beyond identity and policy
 
@@ -216,7 +216,7 @@ This package is maintained by the Nuggets team. Issues and pull requests are wel
 
 ## About Nuggets
 
-Nuggets provides decentralized identity and verifiable trust infrastructure for people and AI agents. Learn more at [nuggets.life](https://nuggets.life).
+Nuggets is the universal trust infrastructure for autonomous AI. Nuggets governs at the point of execution. Learn more at [nuggets.life](https://nuggets.life).
 
 ## License
 

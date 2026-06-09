@@ -24,7 +24,7 @@ Most agent middleware shapes *prompts* or guardrails *outputs*. Nuggets Authorit
 - **Trusted agent identity** — each request signed (RS256) and bound to the agent's DID, ownership verified server-side.
 - **Drop-in** for both `ToolNode` and `create_agent`, with no changes to your tools.
 
-Built on [Nuggets](https://nuggets.life) decentralized identity infrastructure.
+Built on [Nuggets](https://nuggets.life), the universal trust infrastructure for autonomous AI. Nuggets governs at the point of execution.
 
 ## Installation
 
@@ -165,7 +165,7 @@ Set `verify_ssl=False` to disable TLS verification (development only).
 
 ## About Nuggets
 
-Nuggets provides decentralized identity and verifiable trust infrastructure for people and AI agents. Learn more at [nuggets.life](https://nuggets.life).
+Nuggets is the universal trust infrastructure for autonomous AI. Nuggets governs at the point of execution. Learn more at [nuggets.life](https://nuggets.life).
 
 ## License
 
