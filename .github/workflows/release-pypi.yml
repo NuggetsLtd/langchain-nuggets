@@ -47,3 +47,5 @@ jobs:
           path: dist/
       - name: Publish via trusted publisher
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true

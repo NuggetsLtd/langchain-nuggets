@@ -37,3 +37,26 @@ jobs:
         run: ruff check .
       - name: Tests
         run: pytest
+
+  audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + pip-audit
+        run: |
+          python -m pip install --upgrade pip setuptools
+          pip install -e ".[langgraph]"
+          pip install pip-audit
+      - name: Audit dependencies
+        # pip-audit scans the whole environment. We upgrade pip/setuptools above
+        # so a stale runner toolchain doesn't trip the gate, and --skip-editable
+        # omits our own editable package (not on a vuln DB). Everything else,
+        # including the upgraded toolchain, is still audited.
+        run: pip-audit --progress-spinner off --skip-editable
