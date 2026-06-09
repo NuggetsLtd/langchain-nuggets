@@ -1,0 +1,93 @@
+---
+title: Nuggets Authority
+---
+
+[`langchain-nuggets`](https://github.com/NuggetsLtd/langchain-nuggets) provides
+**pre-execution trust enforcement** for agent tool calls. Before any tool runs,
+the middleware calls the [Nuggets](https://nuggets.life) authority endpoint,
+which evaluates a scoped, cryptographically-signed delegation and returns an
+`ALLOW` or `DENY` decision plus a signed audit proof. Tools that aren't
+authorized never execute, and every decision is independently verifiable.
+
+It enforces the Nuggets trust primitives on each call: **Actor Identity**,
+**Authority** (delegation), **Policy**, **Intent**, **Consent**, and
+**Accountability** (provenance).
+
+## Installation
+
+```bash
+pip install langchain-nuggets[agent]
+```
+
+The `agent` extra pulls `langchain>=1.0` for the `create_agent` integration. The
+core middleware also works with `langchain-core` only via `ToolNode` — see the
+[project README](https://github.com/NuggetsLtd/langchain-nuggets).
+
+## Setup
+
+You need a Nuggets agent identity, its private key, and a delegation. Provision
+these in the Nuggets accounts portal — see the
+[agent provisioning runbook](https://github.com/NuggetsLtd/langchain-nuggets/blob/main/docs/agent-provisioning.md).
+
+## Usage
+
+```python
+from langchain.agents import create_agent
+from langchain_nuggets.middleware import (
+    NuggetsAuthorityAgentMiddleware,
+    MiddlewareConfig,
+)
+
+config = MiddlewareConfig(
+    api_url="https://accounts.nuggets.life",
+    oidc_issuer_url="https://auth.nuggets.life",
+    agent_id="did:web:auth.nuggets.life:your-agent-id",
+    controller_id="did:web:auth.nuggets.life:your-controller-id",
+    delegation_id="42",
+    agent_private_key="/secrets/agent-jwks.json",
+)
+
+middleware = NuggetsAuthorityAgentMiddleware(config)
+
+agent = create_agent(
+    model="...",
+    tools=your_tools,
+    middleware=[middleware],
+)
+```
+
+Each tool call is checked before execution:
+
+| Decision | Behaviour |
+|----------|-----------|
+| **ALLOW** | Tool executes; a signed proof artifact is emitted |
+| **DENY**  | Tool is blocked; a structured error with `reason_code` is returned |
+| **ERROR** | Fail closed — the tool does not execute |
+
+Read the emitted proofs from the middleware instance:
+
+```python
+for proof in middleware.proofs:
+    print(f"{proof.proof_id}: {proof.tool} ({proof.latency_ms:.0f}ms)")
+```
+
+## Local development
+
+Pass `test_mode=True` to short-circuit the live auth flow during local
+development. Every check returns `ALLOW`, no HTTP request is made, and the
+emitted proof is flagged as test-mode-unverifiable.
+
+```python
+config = MiddlewareConfig(
+    api_url="https://accounts.nuggets.life",  # unused in test mode
+    agent_id="agent-001",
+    controller_id="org-001",
+    delegation_id="del-001",
+    test_mode=True,
+)
+```
+
+## API reference
+
+- Source and full docs: [github.com/NuggetsLtd/langchain-nuggets](https://github.com/NuggetsLtd/langchain-nuggets)
+- PyPI: [`langchain-nuggets`](https://pypi.org/project/langchain-nuggets/)

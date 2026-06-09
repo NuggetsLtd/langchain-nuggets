@@ -25,7 +25,14 @@ jobs:
           cache: pip
           cache-dependency-path: packages/python/pyproject.toml
       - name: Install
-        run: pip install -e ".[dev,langgraph]"
+        # The [agent] extra pulls langchain>=1.0, which requires Python >=3.10.
+        # On 3.9 the AgentMiddleware adapter tests skip via pytest.importorskip.
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.9" ]; then
+            pip install -e ".[dev,langgraph]"
+          else
+            pip install -e ".[dev,langgraph,agent]"
+          fi
       - name: Lint
         run: ruff check .
       - name: Tests

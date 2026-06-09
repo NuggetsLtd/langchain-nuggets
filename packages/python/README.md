@@ -66,6 +66,25 @@ verify_authority_proof(proof_jws, expected={...}, issuer=issuer, jwks_uri=jwks_u
 
 Opt out only deliberately (e.g. an offline harness verifying proofs separately): `MiddlewareConfig(..., verify_proofs=False)`.
 
+### With `create_agent`
+
+For the LangChain `create_agent` API, install the `agent` extra and use the `AgentMiddleware` adapter (same config, same enforcement):
+
+```bash
+pip install langchain-nuggets[agent]
+```
+
+```python
+from langchain.agents import create_agent
+from langchain_nuggets.middleware import NuggetsAuthorityAgentMiddleware, MiddlewareConfig
+
+agent = create_agent(
+    model="...",
+    tools=your_tools,
+    middleware=[NuggetsAuthorityAgentMiddleware(MiddlewareConfig(...))],
+)
+```
+
 ### Agent private key
 
 The accounts portal generates an RS256 keypair at agent creation and lets you download the private key as a JWKS file. `MiddlewareConfig.agent_private_key` accepts:
