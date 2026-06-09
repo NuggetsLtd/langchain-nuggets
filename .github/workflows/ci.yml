@@ -48,6 +48,8 @@ jobs:
           pip install -e ".[langgraph]"
           pip install pip-audit
       - name: Audit dependencies
-        # Audit our dependency tree, not the build toolchain (pip/setuptools),
-        # which is GitHub-runner-managed and upgraded above.
+        # pip-audit scans the whole environment. We upgrade pip/setuptools above
+        # so a stale runner toolchain doesn't trip the gate, and --skip-editable
+        # omits our own editable package (not on a vuln DB). Everything else,
+        # including the upgraded toolchain, is still audited.
         run: pip-audit --progress-spinner off --skip-editable
