@@ -41,6 +41,10 @@ const allowResponse = () => ({
   constraints_evaluated: ["tool_allowed", "target_allowed", "cap_remaining"]
 });
 
+/** ALLOW-returning client.post mock typed with the real (url, payload, headers) call shape. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const allowPost = () => vi.fn(async (_url: string, _payload: any, _headers: Record<string, string>) => allowResponse());
+
 const denyResponse = () => ({
   decision: "DENY" as const,
   proof_id: "proof-xyz",
@@ -75,7 +79,7 @@ describe("construction", () => {
 describe("ALLOW / DENY / ERROR routing", () => {
   it("executes the tool on ALLOW and returns its message", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    const post = vi.fn(async () => allowResponse());
+    const post = allowPost();
     withClient(mw, post);
     const h = handler();
 
@@ -87,7 +91,7 @@ describe("ALLOW / DENY / ERROR routing", () => {
 
   it("emits a proof on ALLOW", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    withClient(mw, vi.fn(async () => allowResponse()));
+    withClient(mw, allowPost());
     await mw.wrapToolCall(request(), handler());
 
     expect(mw.proofs).toHaveLength(1);
@@ -129,7 +133,7 @@ describe("ALLOW / DENY / ERROR routing", () => {
   it("invokes the proof callback on ALLOW", async () => {
     const onProof = vi.fn();
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ onProof }));
-    withClient(mw, vi.fn(async () => allowResponse()));
+    withClient(mw, allowPost());
     await mw.wrapToolCall(request(), handler());
 
     expect(onProof).toHaveBeenCalledOnce();
@@ -138,7 +142,7 @@ describe("ALLOW / DENY / ERROR routing", () => {
 
   it("accumulates proofs and tracks positive latency", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    withClient(mw, vi.fn(async () => allowResponse()));
+    withClient(mw, allowPost());
     await mw.wrapToolCall(request(), handler());
     await mw.wrapToolCall(request(), handler());
     await mw.wrapToolCall(request(), handler());
@@ -151,7 +155,7 @@ describe("ALLOW / DENY / ERROR routing", () => {
 describe("request payload", () => {
   it("sends the parameters_hash in the action", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    const post = vi.fn(async () => allowResponse());
+    const post = allowPost();
     withClient(mw, post);
     await mw.wrapToolCall(request(), handler());
 
@@ -162,7 +166,7 @@ describe("request payload", () => {
 
   it("sends a unique 36-char Idempotency-Key header per call", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    const post = vi.fn(async () => allowResponse());
+    const post = allowPost();
     withClient(mw, post);
     await mw.wrapToolCall(request(), handler());
     await mw.wrapToolCall(request(), handler());
@@ -175,7 +179,7 @@ describe("request payload", () => {
 
   it("sends a unique 36-char nonce in the action per call", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    const post = vi.fn(async () => allowResponse());
+    const post = allowPost();
     withClient(mw, post);
     await mw.wrapToolCall(request(), handler());
     await mw.wrapToolCall(request(), handler());
@@ -190,7 +194,7 @@ describe("request payload", () => {
 describe("agent_proof", () => {
   it("sends an RS256 JWS that verifies with the agent public key", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    const post = vi.fn(async () => allowResponse());
+    const post = allowPost();
     withClient(mw, post);
     await mw.wrapToolCall(request(), handler());
 
@@ -204,7 +208,7 @@ describe("agent_proof", () => {
 
   it("is fresh per call", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    const post = vi.fn(async () => allowResponse());
+    const post = allowPost();
     withClient(mw, post);
     await mw.wrapToolCall(request(), handler());
     await mw.wrapToolCall(request(), handler());
@@ -214,7 +218,7 @@ describe("agent_proof", () => {
   it("accepts a JWK-dict private key", async () => {
     const jwk = (await exportJWK(agent.privateKey)) as JWK;
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ agentPrivateKey: jwk }));
-    const post = vi.fn(async () => allowResponse());
+    const post = allowPost();
     withClient(mw, post);
     await mw.wrapToolCall(request(), handler());
 
@@ -226,7 +230,7 @@ describe("agent_proof", () => {
     const file = join(tmpdir(), `agent-${Date.now()}.pem`);
     writeFileSync(file, agentPem);
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ agentPrivateKey: file }));
-    const post = vi.fn(async () => allowResponse());
+    const post = allowPost();
     withClient(mw, post);
     await mw.wrapToolCall(request(), handler());
     expect((post.mock.calls[0][1].agent_proof as string).split(".")).toHaveLength(3);
@@ -237,7 +241,7 @@ describe("proof verification (default on, fails closed)", () => {
   it("downgrades an ALLOW with an unverifiable signature to PROOF_VERIFICATION_FAILED", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("no network"); }));
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ verifyProofs: true }));
-    withClient(mw, vi.fn(async () => allowResponse()));
+    withClient(mw, allowPost());
     const h = handler();
 
     const result = (await mw.wrapToolCall(request(), h)) as ToolMessage;
@@ -335,21 +339,21 @@ describe("test mode", () => {
 describe("intent binding", () => {
   it("includes an intent_hash in the proof when an intent resolver is set", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ intentResolver: () => "transfer funds to user" }));
-    withClient(mw, vi.fn(async () => allowResponse()));
+    withClient(mw, allowPost());
     await mw.wrapToolCall(request(), handler());
     expect(mw.proofs[0].intent_hash).toHaveLength(64);
   });
 
   it("has no intent_hash without a resolver", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    withClient(mw, vi.fn(async () => allowResponse()));
+    withClient(mw, allowPost());
     await mw.wrapToolCall(request(), handler());
     expect(mw.proofs[0].intent_hash).toBeNull();
   });
 
   it("sends intent + intent_hash in the eval request", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ intentResolver: () => "transfer funds" }));
-    const post = vi.fn(async () => allowResponse());
+    const post = allowPost();
     withClient(mw, post);
     await mw.wrapToolCall(request(), handler());
     expect(post.mock.calls[0][1].action.intent).toBe("transfer funds");
@@ -360,7 +364,7 @@ describe("intent binding", () => {
 describe("constraints_evaluated", () => {
   it("carries constraints from the response into the proof", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    withClient(mw, vi.fn(async () => allowResponse()));
+    withClient(mw, allowPost());
     await mw.wrapToolCall(request(), handler());
     expect(mw.proofs[0].constraints_evaluated).toEqual(["tool_allowed", "target_allowed", "cap_remaining"]);
   });
@@ -379,7 +383,7 @@ describe("constraints_evaluated", () => {
 describe("awrapToolCall", () => {
   it("delegates to wrapToolCall (ALLOW path)", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
-    withClient(mw, vi.fn(async () => allowResponse()));
+    withClient(mw, allowPost());
     const h = handler();
     const result = (await mw.awrapToolCall(request(), h)) as ToolMessage;
     expect(h).toHaveBeenCalledOnce();

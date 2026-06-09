@@ -205,6 +205,14 @@ describe("verifyAuthorityProof", () => {
     expect(route.calls()).toBe(1);
   });
 
+  it("wraps a malformed protected header as ProofVerificationError", async () => {
+    const { fetchImpl } = singleRoute(JWKS_URI, () => jwks(portalPublicJwk));
+    const real = await signProof(portal.privateKey as SigningKey);
+    const parts = real.split(".");
+    const corrupted = `@@@.${parts[1]}.${parts[2]}`; // valid payload (iss matches), garbage header
+    await expect(verify(corrupted, expected(), fetchImpl)).rejects.toBeInstanceOf(ProofVerificationError);
+  });
+
   it("throws ProofVerificationError on failure", async () => {
     const { fetchImpl } = singleRoute(JWKS_URI, () => new Response(null, { status: 503 }));
     await expect(verify(await signProof(portal.privateKey as SigningKey), expected(), fetchImpl)).rejects.toBeInstanceOf(

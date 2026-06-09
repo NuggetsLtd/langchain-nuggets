@@ -1,4 +1,4 @@
-import type { CryptoKey } from "jose";
+import type { CryptoKey, JWK } from "jose";
 
 /**
  * A key usable for signing with `jose` v6. `importPKCS8` returns a `CryptoKey`;
@@ -21,7 +21,7 @@ export type IntentResolver = (toolName: string, toolArgs: ToolArgs) => string | 
 
 export type ProofCallback = (proof: ProofArtifact) => void | Promise<void>;
 
-export type PrivateKeyInput = string | JsonWebKey | { keys: JsonWebKey[] };
+export type PrivateKeyInput = string | JWK | { keys: JWK[] };
 
 export interface MiddlewareConfigInput {
   apiUrl: string;

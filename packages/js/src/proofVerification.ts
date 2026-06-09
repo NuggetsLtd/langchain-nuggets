@@ -127,7 +127,12 @@ async function verifyCore(
     throw new ProofVerificationError(`proof issuer mismatch: proof=${claims.iss} expected=${issuer}`);
   }
 
-  const header = decodeProtectedHeader(signature);
+  let header: ReturnType<typeof decodeProtectedHeader>;
+  try {
+    header = decodeProtectedHeader(signature);
+  } catch (exc) {
+    throw new ProofVerificationError(`proof has an invalid protected header: ${exc}`);
+  }
   const candidates = candidateKeys(keys, typeof header.kid === "string" ? header.kid : undefined);
   if (candidates.length === 0) {
     throw new ProofVerificationError("no usable key in JWKS");
