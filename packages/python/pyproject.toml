@@ -4,12 +4,23 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langchain-nuggets"
-version = "0.7.0"
+version = "1.0.0"
 description = "Nuggets authority middleware for LangChain / LangGraph"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 keywords = ["langchain", "langgraph", "nuggets", "authority", "middleware", "trust", "ai", "agents"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "langchain-core>=0.3.0",
     "httpx>=0.27.0",
@@ -37,7 +48,9 @@ dev = [
 ]
 
 [project.urls]
+Homepage = "https://nuggets.life"
 Repository = "https://github.com/NuggetsLtd/langchain-nuggets"
+Changelog = "https://github.com/NuggetsLtd/langchain-nuggets/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["langchain_nuggets"]
