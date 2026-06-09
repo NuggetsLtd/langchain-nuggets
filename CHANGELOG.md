@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.0.0]
+
+First stable release. The authority middleware is verified in production — enforce flag on, full authenticated adversarial matrix passing, proof verification on by default — so the public API is now covered by semantic-versioning stability guarantees.
+
+### Added
+
+- PyPI Trove `classifiers` (production-stable status, supported Python 3.9–3.12, security topic).
+
+### Notes
+
+- No functional changes from 0.7.0 — this is a stability/maturity promotion.
+
 ## [0.7.0]
 
 ### Added

@@ -4,7 +4,7 @@
 [![CodeQL](https://github.com/NuggetsLtd/langchain-nuggets/actions/workflows/codeql.yml/badge.svg)](https://github.com/NuggetsLtd/langchain-nuggets/actions/workflows/codeql.yml)
 [![PyPI](https://img.shields.io/pypi/v/langchain-nuggets.svg)](https://pypi.org/project/langchain-nuggets/)
 [![Python versions](https://img.shields.io/pypi/pyversions/langchain-nuggets.svg)](https://pypi.org/project/langchain-nuggets/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 Authority middleware for LangChain / LangGraph — pre-execution trust enforcement on every tool call.
 
@@ -162,31 +162,13 @@ nuggets_auth = NuggetsAuth(
 
 Set `verify_ssl=False` to disable TLS verification (development only).
 
-## Development
+## Contributing
 
-```bash
-cd packages/python
-pip install -e ".[dev,langgraph]"
-pytest
-```
+This package is maintained by the Nuggets team. Issues and pull requests are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for branch/PR conventions, local setup, and the live smoke test, and [SECURITY.md](./SECURITY.md) to report a vulnerability (please don't open public issues for security).
 
-### End-to-end smoke test against a live backend
+## About Nuggets
 
-Pre-create a delegation with your test tool in `allowed_capabilities`, then run from the repo root:
-
-```bash
-export NUGGETS_AUTHORITY_URL="https://accounts-dev.internal-nuggets.life"
-export NUGGETS_OIDC_ISSUER_URL="https://auth-dev.internal-nuggets.life"
-export NUGGETS_AGENT_ID="did:web:auth-dev.internal-nuggets.life:..."
-export NUGGETS_CONTROLLER_ID="did:web:auth-dev.internal-nuggets.life:..."
-export NUGGETS_DELEGATION_ID="42"
-export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"
-export NUGGETS_TOOL="your_tool_name"   # any capability listed in the delegation's allowed_capabilities
-
-python scripts/smoke_test_authority.py
-```
-
-Exits 0 when the backend returns `ALLOW` and a proof artifact is emitted. See [`scripts/demo_deployed_scenarios.py`](./scripts/demo_deployed_scenarios.py) for the full ALLOW + 5 DENY walkthrough.
+Nuggets provides decentralized identity and verifiable trust infrastructure for people and AI agents. Learn more at [nuggets.life](https://nuggets.life).
 
 ## License
 

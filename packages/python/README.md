@@ -3,7 +3,7 @@
 [![CI](https://github.com/NuggetsLtd/langchain-nuggets/actions/workflows/ci.yml/badge.svg)](https://github.com/NuggetsLtd/langchain-nuggets/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/langchain-nuggets.svg)](https://pypi.org/project/langchain-nuggets/)
 [![Python versions](https://img.shields.io/pypi/pyversions/langchain-nuggets.svg)](https://pypi.org/project/langchain-nuggets/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/NuggetsLtd/langchain-nuggets/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/NuggetsLtd/langchain-nuggets/blob/main/LICENSE)
 
 Authority middleware for LangChain / LangGraph — pre-execution trust enforcement on every tool call.
 
@@ -133,6 +133,10 @@ MiddlewareConfig(
 ```
 
 Set `verify_ssl=False` to disable TLS verification (development only).
+
+## About Nuggets
+
+Nuggets provides decentralized identity and verifiable trust infrastructure for people and AI agents. Learn more at [nuggets.life](https://nuggets.life).
 
 ## License
 
