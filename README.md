@@ -48,7 +48,7 @@ To provision an agent + delegation in the portal, see [the agent provisioning ru
 
 ### Proof verification (on by default)
 
-Every `ALLOW` carries a proof signed by the authority. The SDK **verifies it before the tool runs** — it discovers the authority's signing identity from `{api_url}/.well-known/authority-configuration`, pins the proof's issuer to that authority, verifies the signature against the authority's published JWKS, and binds the proof to the request (decision, proof_id, agent_id, controller_id, constraints). Any failure fails **closed** — the decision is treated as a `DENY` with `reason_code = PROOF_VERIFICATION_FAILED` and the tool does not run. No configuration needed; it's on by default.
+Every `ALLOW` carries a proof signed by the authority. The SDK **verifies it before the tool runs** — it discovers the authority's signing identity from `{api_url}/.well-known/authority-configuration`, pins the proof's issuer to that authority, verifies the signature against the authority's published JWKS, and binds the proof to the request (decision, proof_id, agent_id, controller_id, constraints_evaluated). Any failure fails **closed** — the decision is treated as a `DENY` with `reason_code = PROOF_VERIFICATION_FAILED` and the tool does not run. No configuration needed; it's on by default.
 
 This makes every decision **independently verifiable**. A third party can validate an emitted proof out-of-band with the exported helper:
 
