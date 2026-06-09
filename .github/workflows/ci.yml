@@ -30,3 +30,21 @@ jobs:
         run: ruff check .
       - name: Tests
         run: pytest
+
+  audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package + pip-audit
+        run: |
+          pip install -e ".[langgraph]"
+          pip install pip-audit
+      - name: Audit dependencies
+        run: pip-audit --progress-spinner off
