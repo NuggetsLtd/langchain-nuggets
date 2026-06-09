@@ -51,6 +51,21 @@ tool_node = ToolNode(
 
 To provision the agent identity, private key, and delegation referenced above, see [the agent provisioning runbook](https://github.com/NuggetsLtd/langchain-nuggets/blob/main/docs/agent-provisioning.md).
 
+### Proof verification (on by default)
+
+Every `ALLOW` carries a proof signed by the authority, and the SDK **verifies it before the tool runs** — discovering the authority's signing identity from `{api_url}/.well-known/authority-configuration`, pinning the proof's issuer to that authority, verifying the signature against the published JWKS, and binding the proof to the request. Any failure fails **closed**: `DENY` with `reason_code = PROOF_VERIFICATION_FAILED`, tool not run. On by default — no config.
+
+Every decision is therefore **independently verifiable**. A third party can validate an emitted proof out-of-band:
+
+```python
+from langchain_nuggets.middleware import verify_authority_proof, discover_authority
+
+issuer, jwks_uri = discover_authority("https://accounts.nuggets.life")
+verify_authority_proof(proof_jws, expected={...}, issuer=issuer, jwks_uri=jwks_uri)
+```
+
+Opt out only deliberately (e.g. an offline harness verifying proofs separately): `MiddlewareConfig(..., verify_proofs=False)`.
+
 ### Agent private key
 
 The accounts portal generates an RS256 keypair at agent creation and lets you download the private key as a JWKS file. `MiddlewareConfig.agent_private_key` accepts:
