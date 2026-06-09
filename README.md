@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="https://nuggets.life"><img src="https://mintcdn.com/nuggets-b89005a2/jRQbw6WveDYPxE-G/assets/logo-light-bg.svg?fit=max&auto=format&n=jRQbw6WveDYPxE-G&q=85&s=1d4b5047b72eae8cc80de51d2ed68ada" alt="Nuggets" height="56"></a>
+</p>
+
 # langchain-nuggets
 
 [![CI](https://github.com/NuggetsLtd/langchain-nuggets/actions/workflows/ci.yml/badge.svg)](https://github.com/NuggetsLtd/langchain-nuggets/actions/workflows/ci.yml)
