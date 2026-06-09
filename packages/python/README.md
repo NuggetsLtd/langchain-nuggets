@@ -20,6 +20,7 @@ Most agent middleware shapes *prompts* or guardrails *outputs*. Nuggets Authorit
 - **Pre-execution enforcement**, not after-the-fact logging — unauthorized calls fail closed and never run.
 - **Cryptographic accountability** — every decision is a signed, independently verifiable proof artifact; verification on by default.
 - **Scoped, revocable authority** — delegations bound by capability, target, invocation cap, and expiry.
+- **Intent binding** — optional `intent_resolver` support adds an `intent_hash` to proofs, so reviewers can distinguish the same action taken for different business intents.
 - **Trusted agent identity** — each request signed (RS256) and bound to the agent's DID, ownership verified server-side.
 - **Drop-in** for both `ToolNode` and `create_agent`, with no changes to your tools.
 
@@ -69,6 +70,7 @@ tool_node = ToolNode(
 | **ALLOW** | Tool executes; cryptographic proof artifact emitted |
 | **DENY** | Tool blocked; structured error returned with `reason_code` |
 | **ERROR** | Fail closed — tool not executed |
+| **Proof binding** | Proofs bind actor, controller, delegation, tool, parameters, result hash, constraints, and optional intent hash |
 
 To provision the agent identity, private key, and delegation referenced above, see [the agent provisioning runbook](https://github.com/NuggetsLtd/langchain-nuggets/blob/main/docs/agent-provisioning.md).
 
@@ -86,6 +88,17 @@ verify_authority_proof(proof_jws, expected={...}, issuer=issuer, jwks_uri=jwks_u
 ```
 
 Opt out only deliberately (e.g. an offline harness verifying proofs separately): `MiddlewareConfig(..., verify_proofs=False)`.
+
+### Intent binding
+
+Set `intent_resolver` when the agent can identify why a tool call is being made. The SDK hashes the intent with the request parameters and timestamp, sends the `intent_hash` to the authority, and includes it in the emitted proof artifact.
+
+```python
+MiddlewareConfig(
+    ...,
+    intent_resolver=lambda tool, args: "KYC lookup for compliance review",
+)
+```
 
 ### With `create_agent`
 

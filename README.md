@@ -21,6 +21,7 @@ Most agent middleware shapes *prompts* or guardrails *outputs*. Nuggets Authorit
 - **Pre-execution enforcement, not after-the-fact logging.** Every tool call is checked against a scoped delegation *before* it executes. Unauthorized calls never run — the middleware fails closed.
 - **Cryptographic accountability.** Each decision is a signed, independently verifiable proof artifact — who acted, what they did, when, and under which authority. Proof verification is on by default and tamper-evident.
 - **Authority you can scope and revoke.** Delegations are bound by capability, target, invocation cap, and expiry — issued and revoked in the Nuggets portal, enforced live by the backend.
+- **Intent binding.** Add an `intent_resolver` and proofs carry an `intent_hash`, so the same tool call and parameters can produce distinct evidence when the business intent changes.
 - **Identity you can trust.** Every request is signed by the agent's key (RS256) and bound to its decentralized identifier (DID); the backend verifies ownership before deciding.
 - **Drop-in for LangChain & LangGraph.** Works with both `ToolNode` and `create_agent` in a few lines — no changes to your tools.
 - **Run it your way.** Hosted Nuggets, or self-hosted against your own deployment with a private CA.
@@ -37,6 +38,7 @@ Enterprise identity (SSO) proves *who* an agent is. Operational policy and guard
 | What may the agent access? | — | ✅ | ✅ |
 | **Who authorised this action?** | — | — | ✅ |
 | **Was it within the delegated scope?** | — | — | ✅ |
+| **What intent was attached?** | — | — | ✅ |
 | Evidence it produces | — | internal logs | cryptographic proof |
 | Independently verifiable? | — | — | ✅ |
 | Reveals only hashes, not raw data? | — | — | ✅ |
@@ -99,6 +101,19 @@ verify_authority_proof(proof_jws, expected={...}, issuer=issuer, jwks_uri=jwks_u
 ```
 
 Disable verification only as a deliberate opt-out (e.g. an offline harness that verifies proofs separately): `MiddlewareConfig(..., verify_proofs=False)`.
+
+### Intent binding
+
+Configure `intent_resolver` when your agent can identify the business intent behind a tool call. The SDK hashes that intent together with the request parameters and timestamp, sends the `intent_hash` to the authority, and includes it in the emitted proof artifact. This lets reviewers distinguish, for example, the same KYC lookup performed for compliance review from one performed for fraud investigation.
+
+```python
+config = MiddlewareConfig(
+    ...,
+    intent_resolver=lambda tool, args: "KYC lookup for compliance review",
+)
+```
+
+The offline cross-org demo includes this scenario: the same tool and parameters with two different intents produce different proof hashes.
 
 ### With `create_agent`
 
