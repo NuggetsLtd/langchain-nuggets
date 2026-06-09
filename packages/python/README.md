@@ -13,6 +13,18 @@ Authority middleware for LangChain / LangGraph — pre-execution trust enforceme
 
 Wrap any `ToolNode` and the middleware calls the Nuggets authority endpoint before each tool executes. The backend evaluates a scoped delegation, returns an `ALLOW` or `DENY` decision, and signs an audit proof. Tools that aren't allowed never run.
 
+## Why Nuggets Authority?
+
+Most agent middleware shapes *prompts* or guardrails *outputs*. Nuggets Authority governs *actions* — "is this agent allowed to do **this**, right now, on whose authority?" — before a tool runs, and leaves cryptographic proof.
+
+- **Pre-execution enforcement**, not after-the-fact logging — unauthorized calls fail closed and never run.
+- **Cryptographic accountability** — every decision is a signed, independently verifiable proof artifact; verification on by default.
+- **Scoped, revocable authority** — delegations bound by capability, target, invocation cap, and expiry.
+- **Trusted agent identity** — each request signed (RS256) and bound to the agent's DID, ownership verified server-side.
+- **Drop-in** for both `ToolNode` and `create_agent`, with no changes to your tools.
+
+Built on [Nuggets](https://nuggets.life) decentralized identity infrastructure.
+
 ## Installation
 
 ```bash
