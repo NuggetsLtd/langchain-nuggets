@@ -46,6 +46,21 @@ See [`examples/python/authority_middleware_demo.py`](./examples/python/authority
 
 To provision an agent + delegation in the portal, see [the agent provisioning runbook](./docs/agent-provisioning.md).
 
+### Proof verification (on by default)
+
+Every `ALLOW` carries a proof signed by the authority. The SDK **verifies it before the tool runs** — it discovers the authority's signing identity from `{api_url}/.well-known/authority-configuration`, pins the proof's issuer to that authority, verifies the signature against the authority's published JWKS, and binds the proof to the request (decision, proof_id, agent_id, controller_id, constraints_evaluated). Any failure fails **closed** — the decision is treated as a `DENY` with `reason_code = PROOF_VERIFICATION_FAILED` and the tool does not run. No configuration needed; it's on by default.
+
+This makes every decision **independently verifiable**. A third party can validate an emitted proof out-of-band with the exported helper:
+
+```python
+from langchain_nuggets.middleware import verify_authority_proof, discover_authority
+
+issuer, jwks_uri = discover_authority("https://accounts.nuggets.life")
+verify_authority_proof(proof_jws, expected={...}, issuer=issuer, jwks_uri=jwks_uri)
+```
+
+Disable verification only as a deliberate opt-out (e.g. an offline harness that verifies proofs separately): `MiddlewareConfig(..., verify_proofs=False)`.
+
 ### Agent private key
 
 Every authority request is signed with an RS256 JWS proving the request originated from the agent that owns the DID. The Nuggets backend verifies the signature against the agent's registered OIDC public key.
