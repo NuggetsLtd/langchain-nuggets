@@ -61,6 +61,30 @@ verify_authority_proof(proof_jws, expected={...}, issuer=issuer, jwks_uri=jwks_u
 
 Disable verification only as a deliberate opt-out (e.g. an offline harness that verifies proofs separately): `MiddlewareConfig(..., verify_proofs=False)`.
 
+### With `create_agent`
+
+To use Authority as a LangChain `AgentMiddleware` (the `create_agent` API), install the `agent` extra:
+
+```bash
+pip install langchain-nuggets[agent]
+```
+
+```python
+from langchain.agents import create_agent
+from langchain_nuggets.middleware import NuggetsAuthorityAgentMiddleware, MiddlewareConfig
+
+config = MiddlewareConfig(...)  # same config as above
+middleware = NuggetsAuthorityAgentMiddleware(config)
+
+agent = create_agent(
+    model="...",
+    tools=your_tools,
+    middleware=[middleware],
+)
+```
+
+Same enforcement as the `ToolNode` path — every tool call is checked before it runs, DENY/ERROR fail closed, ALLOW emits a signed proof (read them from `middleware.proofs`).
+
 ### Agent private key
 
 Every authority request is signed with an RS256 JWS proving the request originated from the agent that owns the DID. The Nuggets backend verifies the signature against the agent's registered OIDC public key.

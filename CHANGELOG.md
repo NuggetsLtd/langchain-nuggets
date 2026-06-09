@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.7.0]
+
+### Added
+
+- **`NuggetsAuthorityAgentMiddleware` — a first-class LangChain `AgentMiddleware` adapter** for `create_agent(middleware=[...])`. Subclasses `langchain.agents.middleware.AgentMiddleware` and composes the existing `NuggetsAuthorityMiddleware`, so the full verified enforcement path (bearer auth, agent_proof signing, discover-and-pin proof verification, fail-closed DENY/ERROR, proof emission) is reused unchanged. This makes Nuggets Authority usable as a listed LangChain integration.
+- New `[agent]` optional extra (`pip install langchain-nuggets[agent]`) pulling `langchain>=1.0`. Import via `from langchain_nuggets.middleware import NuggetsAuthorityAgentMiddleware`; a clear install hint is raised if the extra is missing.
+
+### Notes
+
+- The core `NuggetsAuthorityMiddleware` (`ToolNode(wrap_tool_call=...)`) path is unchanged and still depends only on `langchain-core`. The adapter is purely additive.
+- `langchain>=1.0` requires Python >=3.10; on 3.9 the core middleware remains fully usable, only the `create_agent` adapter is unavailable.
+
 ## [0.6.0]
 
 ### Changed
