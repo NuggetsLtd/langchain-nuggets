@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://nuggets.life"><img src="./docs/assets/nuggets-logo.svg" alt="Nuggets" height="72"></a>
+  <a href="https://nuggets.life"><img src="./docs/assets/nuggets-logo.svg" alt="Nuggets" height="104"></a>
 </p>
 
 # langchain-nuggets
