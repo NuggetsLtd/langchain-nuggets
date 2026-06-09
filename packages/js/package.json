@@ -18,6 +18,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
@@ -36,6 +37,15 @@
     "agents"
   ],
   "license": "MIT",
+  "homepage": "https://nuggets.life",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NuggetsLtd/langchain-nuggets.git",
+    "directory": "packages/js"
+  },
+  "bugs": {
+    "url": "https://github.com/NuggetsLtd/langchain-nuggets/issues"
+  },
   "dependencies": {
     "@langchain/core": "^1.0.0",
     "jose": "^6.1.3"
