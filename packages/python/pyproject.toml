@@ -22,7 +22,9 @@ langgraph = [
     "langgraph-sdk>=0.1.0",
 ]
 agent = [
-    "langchain>=1.0",
+    # langchain 1.x requires Python >=3.10; marker keeps the extra resolvable
+    # (a no-op) on 3.9 so `pip install langchain-nuggets[agent]` never errors.
+    "langchain>=1.0; python_version >= '3.10'",
 ]
 dev = [
     "pytest>=8.0.0",

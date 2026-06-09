@@ -74,11 +74,12 @@ from langchain.agents import create_agent
 from langchain_nuggets.middleware import NuggetsAuthorityAgentMiddleware, MiddlewareConfig
 
 config = MiddlewareConfig(...)  # same config as above
+middleware = NuggetsAuthorityAgentMiddleware(config)
 
 agent = create_agent(
     model="...",
     tools=your_tools,
-    middleware=[NuggetsAuthorityAgentMiddleware(config)],
+    middleware=[middleware],
 )
 ```
 
