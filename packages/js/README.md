@@ -76,4 +76,4 @@ node scripts/smoke-test-authority.mjs
 
 Exits 0 when the backend returns `ALLOW` and a verified proof artifact is emitted.
 
-This package is under active porting. The first public-ready milestone is parity with the Python package for bearer minting, `agent_proof` signing, authority evaluation, proof verification, and emitted proof artifacts.
+This package is at parity with the Python `langchain-nuggets` package — bearer minting, `agent_proof` signing, authority evaluation, discover-and-pin proof verification, and emitted proof artifacts — and has been validated end-to-end against a live backend.

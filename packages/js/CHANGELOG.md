@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.0.0]
+
+First stable release. No functional changes from 0.1.0 — promoted to 1.0.0 after end-to-end validation against a live backend (OIDC token minting, `agent_proof` signing, authority `ALLOW`, and discover-and-pin proof verification all confirmed against the deployed dev environment), plus full parity-test coverage. The public API is now covered by semantic-versioning stability guarantees, matching the Python package.
+
 ## [0.1.0]
 
 Initial release — a TypeScript port of the Python `langchain-nuggets` Authority middleware.

@@ -1,6 +1,6 @@
 {
   "name": "@nuggetslife/langchain-nuggets",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Nuggets authority middleware for LangChain.js / LangGraph.js",
   "type": "module",
   "main": "./dist/index.js",
