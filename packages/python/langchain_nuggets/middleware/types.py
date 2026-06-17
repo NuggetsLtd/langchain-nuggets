@@ -43,7 +43,7 @@ class MiddlewareConfig(BaseModel):
             raise ValueError(
                 "oidc_issuer_url is required when test_mode is False. "
                 "Set it to the Nuggets OIDC provider URL (e.g. "
-                "https://auth-dev.internal-nuggets.life)."
+                "https://auth.nuggets.life)."
             )
         return self
 

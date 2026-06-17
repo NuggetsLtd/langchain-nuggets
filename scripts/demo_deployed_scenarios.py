@@ -13,7 +13,7 @@ real deployed accounts portal — real OIDC, real `agent_proof` JWS,
 real signed proofs.
 
 ================================================================
-Setup (one-time, in the dev accounts portal)
+Setup (one-time, in the accounts portal)
 ================================================================
 
 1. Create the agent (AI → Agents → Create). Download the JWKS file.
@@ -52,8 +52,8 @@ Env vars
 ================================================================
 
 Required:
-    NUGGETS_AUTHORITY_URL          e.g. https://accounts-dev.internal-nuggets.life
-    NUGGETS_OIDC_ISSUER_URL        e.g. https://auth-dev.internal-nuggets.life
+    NUGGETS_AUTHORITY_URL          e.g. https://accounts.nuggets.life
+    NUGGETS_OIDC_ISSUER_URL        e.g. https://auth.nuggets.life
     NUGGETS_AGENT_ID               full DID
     NUGGETS_CONTROLLER_ID          full DID
     NUGGETS_AGENT_PRIVATE_KEY      path to JWKS / PEM / JWK file (or inline)
