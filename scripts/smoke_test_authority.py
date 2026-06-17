@@ -14,9 +14,9 @@ Setup:
     note the delegation_id.
 
 Usage:
-    export NUGGETS_AUTHORITY_URL="https://accounts-dev.internal-nuggets.life"
-    export NUGGETS_OIDC_ISSUER_URL="https://auth-dev.internal-nuggets.life"
-    export NUGGETS_AGENT_ID="did:web:auth-dev.internal-nuggets.life:..."
+    export NUGGETS_AUTHORITY_URL="https://accounts.nuggets.life"
+    export NUGGETS_OIDC_ISSUER_URL="https://auth.nuggets.life"
+    export NUGGETS_AGENT_ID="did:web:auth.nuggets.life:..."
     export NUGGETS_CONTROLLER_ID="did:nuggets:oidc:..."
     export NUGGETS_DELEGATION_ID="42"
     export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"  # or PEM

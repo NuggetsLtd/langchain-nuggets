@@ -27,14 +27,14 @@ Covers two readers:
 - **Controller** — the local agent that issues the delegation. Its DID
   becomes `controller_id` in the SDK config.
 - **Authority endpoint** — `POST /api/authority/evaluate` on
-  `accounts-<env>.internal-nuggets.life`. The middleware calls this on
+  `accounts.nuggets.life`. The middleware calls this on
   every wrapped tool call and receives a signed ALLOW/DENY decision.
 
 ## Part 1 — Administrator: provision the agent in the portal
 
 ### 1.1 Sign in
 
-Log into `https://accounts-<env>.internal-nuggets.life` as a user with
+Log into `https://accounts.nuggets.life` as a user with
 "manage agents" permissions on the target tenant account. Navigate to
 **AI → Agents**.
 
@@ -62,7 +62,7 @@ The downloaded file is a JWKS document of the form:
 ### 1.3 Record the agent's DID
 
 On the agent detail page, the **Decentralised Identifier (DID)** field
-shows the agent's DID — `did:web:auth-<env>.internal-nuggets.life:<client_id>`.
+shows the agent's DID — `did:web:auth.nuggets.life:<client_id>`.
 Copy it; the SDK integrator needs both the full DID (for `agent_id`)
 and the bare `<client_id>` is derived automatically by the SDK.
 
@@ -109,8 +109,8 @@ From the administrator you should have received:
   the delegation row in the portal.
 - The `delegation_id` (numeric) from the runtime bundle.
 - The environment URLs:
-  - Accounts portal: `https://accounts-<env>.internal-nuggets.life`
-  - OIDC issuer: `https://auth-<env>.internal-nuggets.life`
+  - Accounts portal: `https://accounts.nuggets.life`
+  - OIDC issuer: `https://auth.nuggets.life`
 
 ### 2.2 Configure `MiddlewareConfig`
 
@@ -118,10 +118,10 @@ From the administrator you should have received:
 from langchain_nuggets.middleware import MiddlewareConfig, NuggetsAuthorityMiddleware
 
 config = MiddlewareConfig(
-    api_url="https://accounts-dev.internal-nuggets.life",
-    oidc_issuer_url="https://auth-dev.internal-nuggets.life",
-    agent_id="did:web:auth-dev.internal-nuggets.life:<client_id>",
-    controller_id="did:web:auth-dev.internal-nuggets.life:<controller_client_id>",
+    api_url="https://accounts.nuggets.life",
+    oidc_issuer_url="https://auth.nuggets.life",
+    agent_id="did:web:auth.nuggets.life:<client_id>",
+    controller_id="did:web:auth.nuggets.life:<controller_client_id>",
     delegation_id="42",
     agent_private_key="/secrets/agent-jwks.json",  # path, inline PEM, or dict
 )
@@ -158,10 +158,10 @@ That's the entire integration — no per-tool changes.
 Run the smoke test from the repo root:
 
 ```bash
-export NUGGETS_AUTHORITY_URL="https://accounts-dev.internal-nuggets.life"
-export NUGGETS_OIDC_ISSUER_URL="https://auth-dev.internal-nuggets.life"
-export NUGGETS_AGENT_ID="did:web:auth-dev.internal-nuggets.life:..."
-export NUGGETS_CONTROLLER_ID="did:web:auth-dev.internal-nuggets.life:..."
+export NUGGETS_AUTHORITY_URL="https://accounts.nuggets.life"
+export NUGGETS_OIDC_ISSUER_URL="https://auth.nuggets.life"
+export NUGGETS_AGENT_ID="did:web:auth.nuggets.life:..."
+export NUGGETS_CONTROLLER_ID="did:web:auth.nuggets.life:..."
 export NUGGETS_DELEGATION_ID="42"
 export NUGGETS_AGENT_PRIVATE_KEY="/secrets/agent-jwks.json"
 export NUGGETS_TOOL="your_tool_name"   # any capability you listed under Allowed Actions

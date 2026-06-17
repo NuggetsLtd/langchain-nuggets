@@ -9,9 +9,9 @@
  * Build first, then run with the same env contract as the Python smoke:
  *
  *   cd packages/js && npm run build
- *   export NUGGETS_AUTHORITY_URL="https://accounts-dev.internal-nuggets.life"
- *   export NUGGETS_OIDC_ISSUER_URL="https://auth-dev.internal-nuggets.life"
- *   export NUGGETS_AGENT_ID="did:web:auth-dev.internal-nuggets.life:..."
+ *   export NUGGETS_AUTHORITY_URL="https://accounts.nuggets.life"
+ *   export NUGGETS_OIDC_ISSUER_URL="https://auth.nuggets.life"
+ *   export NUGGETS_AGENT_ID="did:web:auth.nuggets.life:..."
  *   export NUGGETS_CONTROLLER_ID="..."
  *   export NUGGETS_DELEGATION_ID="10"
  *   export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"   # or PEM
