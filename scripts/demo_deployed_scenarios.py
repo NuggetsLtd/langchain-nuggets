@@ -13,7 +13,7 @@ real deployed accounts portal — real OIDC, real `agent_proof` JWS,
 real signed proofs.
 
 ================================================================
-Setup (one-time, in the dev accounts portal)
+Setup (one-time, in the accounts portal)
 ================================================================
 
 1. Create the agent (AI → Agents → Create). Download the JWKS file.
