@@ -170,3 +170,7 @@ Nuggets is the universal trust infrastructure for autonomous AI. Nuggets governs
 ## License
 
 MIT
+
+## Trademarks
+
+`langchain-nuggets` is an independent, community-maintained integration and is not affiliated with, sponsored by, or endorsed by LangChain, Inc. "LangChain" and "LangGraph" are trademarks of LangChain, Inc. All other trademarks are the property of their respective owners.
