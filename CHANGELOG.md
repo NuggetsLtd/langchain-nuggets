@@ -12,7 +12,7 @@ Security-hardening release from an adversarial review. Minor bump because one ch
 
 ### ⚠️ Migration
 
-- **LangGraph OIDC auth now requires an `audience`.** If you construct `NuggetsAuth(issuer_url=...)` (or `NuggetsTokenVerifier`) **without** an `audience`, JWT verification now fails closed (HTTP 401) instead of silently skipping the `aud` check. Set `audience=<your LangGraph deployment's resource identifier>` (RFC 9068). If you have a deliberate reason to accept any audience from the issuer, pass `allow_any_audience=True` (insecure).
+- **LangGraph OIDC auth now requires an `audience`.** If you construct `NuggetsAuth(issuer_url=...)` (or `NuggetsTokenVerifier`) **without** an `audience`, JWT verification now fails closed (HTTP 401) instead of silently skipping the `aud` check (RFC 9068). Note: the Nuggets issuer does not yet define a LangGraph resource-server audience, so a concrete `audience=` value is not available today — that issuer-side contract is tracked in #63. Until it lands, `allow_any_audience=True` is a **temporary migration escape hatch, not a production recommendation**. Do **not** use the authority API resource (`.../api/authority`) as the LangGraph `audience` — it is a different resource.
 - **`ownership_filter()` behavior changed.** It now stamps `value["metadata"]["owner"]` (not a top-level `value["owner"]`) and returns an `{"owner": identity}` filter for every operation. If you relied on the previous (broken) shape, re-verify ownership/read-access after upgrading, and register the handler across create/read/search/update/delete.
 
 ### Security

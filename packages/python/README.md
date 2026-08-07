@@ -172,12 +172,14 @@ from langchain_nuggets.langgraph import NuggetsAuth
 
 nuggets = NuggetsAuth(
     issuer_url="https://auth.nuggets.life",
-    audience="https://your-langgraph-deployment/",  # this server's resource identifier
+    audience="<your LangGraph deployment's resource URI>",  # RFC 9068
 )
 auth = nuggets.auth  # pass to langgraph.json
 ```
 
-**Always set `audience`** to this deployment's resource identifier. Per RFC 9068 a resource server must reject JWT access tokens whose `aud` doesn't identify it; without an audience the verifier can't do that, so JWT verification **fails closed**. Only if you have a deliberate reason to accept any audience from the issuer, pass `allow_any_audience=True` (insecure) to opt out. Tokens are verified with a fixed `RS256` allowlist (never the token header's `alg`).
+Per RFC 9068 a resource server must reject JWT access tokens whose `aud` doesn't identify it. The verifier enforces this and **fails closed** when no `audience` is configured; the algorithm is pinned to `RS256` (never the token header's `alg`).
+
+> **Note:** the Nuggets issuer does not yet define a LangGraph resource-server audience, so there is no `audience=` value to set today (tracked in [#63](https://github.com/NuggetsLtd/langchain-nuggets/issues/63)). Until that issuer-side contract lands, `allow_any_audience=True` is a **temporary migration escape hatch, not a production setting** — and do **not** use the authority API resource (`…/api/authority`) as the LangGraph audience; it is a different resource.
 
 Pre-built authorization helpers:
 
