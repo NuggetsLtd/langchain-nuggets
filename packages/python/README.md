@@ -163,7 +163,7 @@ Keep the private JWKS in a secret store or mounted secret — never in source co
 
 ### Test mode
 
-`test_mode=True` short-circuits the live auth flow during local development — every check returns `ALLOW`, no HTTP is made, and the emitted proof artifact is flagged as test-mode-unverifiable.
+`test_mode=True` short-circuits the live auth flow during local development — no HTTP is made and each check returns a synthetic `ALLOW` with a proof artifact flagged as test-mode-unverifiable. Action-context resolution still runs first: a configured `action_context_resolver` that returns invalid money fields (or raises) fails **closed** with an `ERROR` `ToolMessage` before the short-circuit, so validation behaves identically in and out of test mode.
 
 ## LangGraph Platform OIDC auth
 

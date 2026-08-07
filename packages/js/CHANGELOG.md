@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.1.1]
+
+Security hardening. Fixes NuggetsLtd/langchain-nuggets#54.
+
+### Security
+
+- **Fail-closed `ERROR` messages no longer echo raw exception text.** The action-context-resolver and authority-evaluation catch paths previously interpolated `${exc}` into the `ToolMessage` content (surfaced to the LLM/user), which could leak tool-arg data from a resolver or authority error. The message now carries only a generic phrase plus the error's class name.
+
 ## [1.1.0]
 
 Payment / approval half of the ACP action contract. Additive — expands the set of possible decisions, so a minor bump. At parity with the Python `langchain-nuggets` 1.1.0 release.
