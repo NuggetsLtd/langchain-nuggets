@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.2.0]
+
+Released in lockstep with the Python package's 1.2.0. **No functional changes to this package** — the 1.2.0 work (LangGraph OIDC audience enforcement) is in the Python `langgraph` auth surface, which this JS package does not include. Version kept in step for parity.
+
+
+
 ## [1.1.2]
 
 Released in lockstep with the Python package's 1.1.2 security-hardening patch.

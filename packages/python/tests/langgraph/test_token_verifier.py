@@ -49,18 +49,29 @@ DISCOVERY_RESPONSE = {
 }
 
 
-def _make_jwt(claims: dict, expired: bool = False, issuer: str = ISSUER) -> str:
+def _make_jwt(
+    claims: dict,
+    *,
+    expired: bool = False,
+    exp_offset: int | None = None,
+    issuer: str = ISSUER,
+    aud: str = "test-audience",
+    typ: str | None = "at+jwt",
+) -> str:
+    if exp_offset is None:
+        exp_offset = -3600 if expired else 3600
     payload = {
         "sub": "user-123",
         "iss": issuer,
-        "aud": "test-audience",
+        "aud": aud,
         "iat": int(time.time()),
-        "exp": int(time.time()) + (-3600 if expired else 3600),
+        "exp": int(time.time()) + exp_offset,
         **claims,
     }
-    return jwt.encode(
-        payload, _private_key, algorithm="RS256", headers={"kid": "test-key-1"}
-    )
+    headers = {"kid": "test-key-1"}
+    if typ is not None:
+        headers["typ"] = typ
+    return jwt.encode(payload, _private_key, algorithm="RS256", headers=headers)
 
 
 def _mock_discovery_and_jwks():
@@ -137,60 +148,35 @@ async def test_jwks_caching():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_opaque_token_falls_back_to_userinfo():
-    respx.get(DISCOVERY_URL).mock(return_value=httpx.Response(200, json=DISCOVERY_RESPONSE))
-    respx.get(USERINFO_URL).mock(
-        return_value=httpx.Response(200, json={"sub": "user-456", "email": "bob@example.com"})
-    )
+async def test_opaque_token_rejected():
+    # JWT-only: a non-JWT (opaque) token is rejected, never sent to a userinfo
+    # fallback that would bypass the audience check.
+    _mock_discovery_and_jwks()
+    verifier = NuggetsTokenVerifier(ISSUER, audience="test-audience")
 
-    verifier = NuggetsTokenVerifier(ISSUER)
-    claims = await verifier.verify_token("opaque-access-token-xyz")
-
-    assert claims["sub"] == "user-456"
-    assert claims["email"] == "bob@example.com"
-
-
-@respx.mock
-@pytest.mark.asyncio
-async def test_userinfo_success():
-    respx.get(DISCOVERY_URL).mock(return_value=httpx.Response(200, json=DISCOVERY_RESPONSE))
-    respx.get(USERINFO_URL).mock(
-        return_value=httpx.Response(200, json={"sub": "user-789", "name": "Charlie"})
-    )
-
-    verifier = NuggetsTokenVerifier(ISSUER)
-    claims = await verifier._fetch_userinfo("some-token")
-
-    assert claims["sub"] == "user-789"
-    assert claims["name"] == "Charlie"
-
-
-@respx.mock
-@pytest.mark.asyncio
-async def test_userinfo_401():
-    respx.get(DISCOVERY_URL).mock(return_value=httpx.Response(200, json=DISCOVERY_RESPONSE))
-    respx.get(USERINFO_URL).mock(return_value=httpx.Response(401))
-
-    verifier = NuggetsTokenVerifier(ISSUER)
-
-    with pytest.raises(NuggetsAuthError, match="Invalid or expired token"):
-        await verifier._fetch_userinfo("bad-token")
+    with pytest.raises(NuggetsAuthError):
+        await verifier.verify_token("opaque-access-token-xyz")
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_missing_sub_claim():
     _mock_discovery_and_jwks()
-    verifier = NuggetsTokenVerifier(ISSUER)
+    verifier = NuggetsTokenVerifier(ISSUER, allow_any_audience=True)
 
-    # Create a JWT without 'sub'
-    payload = {
-        "iss": ISSUER,
-        "iat": int(time.time()),
-        "exp": int(time.time()) + 3600,
-        "email": "no-sub@example.com",
-    }
-    token = jwt.encode(payload, _private_key, algorithm="RS256", headers={"kid": "test-key-1"})
+    # A verifiable JWT (correct typ/iss/sig) but without 'sub'.
+    token = jwt.encode(
+        {
+            "iss": ISSUER,
+            "aud": "test-audience",
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 3600,
+            "email": "no-sub@example.com",
+        },
+        _private_key,
+        algorithm="RS256",
+        headers={"kid": "test-key-1", "typ": "at+jwt"},
+    )
 
     with pytest.raises(NuggetsAuthError, match="sub"):
         await verifier.verify_token(token)
@@ -220,26 +206,59 @@ async def test_rejects_non_rs256_algorithm():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_blank_audience_treated_as_unconfigured():
-    # A blank/whitespace audience is normalized to None (aud simply not enforced),
-    # not a confusing downstream aud-mismatch.
+async def test_jwt_without_configured_audience_is_rejected():
+    # Mandatory audience (#63 contract now live): no audience configured → fail
+    # closed, rather than accept any correctly-signed issuer token.
+    _mock_discovery_and_jwks()
+    verifier = NuggetsTokenVerifier(ISSUER)
+    token = _make_jwt({})
+
+    with pytest.raises(NuggetsAuthError, match="audience"):
+        await verifier.verify_token(token)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_blank_audience_is_rejected():
+    # Blank/whitespace normalizes to None → same fail-closed path.
     _mock_discovery_and_jwks()
     verifier = NuggetsTokenVerifier(ISSUER, audience="   ")
     token = _make_jwt({})
 
-    claims = await verifier.verify_token(token)
-
-    assert claims["sub"] == "user-123"
+    with pytest.raises(NuggetsAuthError, match="audience"):
+        await verifier.verify_token(token)
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_jwt_without_configured_audience_is_accepted():
-    # Deferred: making audience mandatory (fail closed when unset) waits on the
-    # issuer's LangGraph aud contract (#63). Today, no audience → aud not enforced.
+async def test_rejects_wrong_typ():
+    # typ must be at+jwt (RFC 9068) — blocks ID-token/access-token confusion.
     _mock_discovery_and_jwks()
-    verifier = NuggetsTokenVerifier(ISSUER)
-    token = _make_jwt({})
+    verifier = NuggetsTokenVerifier(ISSUER, audience="test-audience")
+    token = _make_jwt({}, typ="JWT")
+
+    with pytest.raises(NuggetsAuthError, match="typ"):
+        await verifier.verify_token(token)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_rejects_missing_typ():
+    _mock_discovery_and_jwks()
+    verifier = NuggetsTokenVerifier(ISSUER, audience="test-audience")
+    token = _make_jwt({}, typ=None)
+
+    with pytest.raises(NuggetsAuthError, match="typ"):
+        await verifier.verify_token(token)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_clock_skew_within_leeway_accepted():
+    # Backend runs clockTolerance 15s; a token expired 10s ago still verifies.
+    _mock_discovery_and_jwks()
+    verifier = NuggetsTokenVerifier(ISSUER, audience="test-audience")
+    token = _make_jwt({}, exp_offset=-10)
 
     claims = await verifier.verify_token(token)
 
@@ -248,18 +267,76 @@ async def test_jwt_without_configured_audience_is_accepted():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_discovery_caches_endpoints():
+async def test_clock_skew_beyond_leeway_rejected():
+    _mock_discovery_and_jwks()
+    verifier = NuggetsTokenVerifier(ISSUER, audience="test-audience")
+    token = _make_jwt({}, exp_offset=-120)
+
+    with pytest.raises(NuggetsAuthError, match="expired"):
+        await verifier.verify_token(token)
+
+
+class TestAllowAnyAudience:
+    """The opt-out bypasses ONLY the aud match — signature, iss, exp, typ,
+    and RS256 pinning still apply. It is 'allow any audience', not 'allow
+    anything'."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_bypasses_aud_only(self):
+        _mock_discovery_and_jwks()
+        verifier = NuggetsTokenVerifier(ISSUER, allow_any_audience=True)
+        token = _make_jwt({}, aud="some-other-audience")
+
+        claims = await verifier.verify_token(token)
+
+        assert claims["sub"] == "user-123"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_still_rejects_wrong_issuer(self):
+        _mock_discovery_and_jwks()
+        verifier = NuggetsTokenVerifier(ISSUER, allow_any_audience=True)
+        token = _make_jwt({}, issuer="https://evil.com")
+
+        with pytest.raises(NuggetsAuthError, match="issuer"):
+            await verifier.verify_token(token)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_still_rejects_expired(self):
+        _mock_discovery_and_jwks()
+        verifier = NuggetsTokenVerifier(ISSUER, allow_any_audience=True)
+        token = _make_jwt({}, expired=True)
+
+        with pytest.raises(NuggetsAuthError, match="expired"):
+            await verifier.verify_token(token)
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_still_rejects_bad_typ(self):
+        _mock_discovery_and_jwks()
+        verifier = NuggetsTokenVerifier(ISSUER, allow_any_audience=True)
+        token = _make_jwt({}, typ="JWT")
+
+        with pytest.raises(NuggetsAuthError, match="typ"):
+            await verifier.verify_token(token)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_discovery_caches_across_calls():
+    # Discovery is fetched once and reused (exercised via the JWT/JWKS path).
     discovery_route = respx.get(DISCOVERY_URL).mock(
         return_value=httpx.Response(200, json=DISCOVERY_RESPONSE)
     )
-    respx.get(USERINFO_URL).mock(return_value=httpx.Response(200, json={"sub": "u1"}))
+    respx.get(JWKS_URL).mock(return_value=httpx.Response(200, json=_jwks_response))
 
-    verifier = NuggetsTokenVerifier(ISSUER)
+    verifier = NuggetsTokenVerifier(ISSUER, audience="test-audience")
 
-    await verifier._fetch_userinfo("token1")
-    await verifier._fetch_userinfo("token2")
+    await verifier.verify_token(_make_jwt({}))
+    await verifier.verify_token(_make_jwt({}))
 
-    # Discovery fetched once, cached for second call
     assert discovery_route.call_count == 1
 
 

@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.2.0]
+
+LangGraph OIDC audience enforcement, now that the issuer defines a resource-server `aud` contract (partner#952). Minor bump — the audience default is a breaking change for the LangGraph auth path (see Migration).
+
+### ⚠️ Migration (LangGraph OIDC auth only)
+
+- **`NuggetsAuth` / `NuggetsTokenVerifier` now require an `audience`.** JWT verification **fails closed (401)** when no `audience` is configured. Set it to your environment's Nuggets agent resource URI — dev `https://accounts-dev.internal-nuggets.life/agent`, integration `…accounts-integration…/agent`, staging `…accounts-staging…/agent`, production `https://accounts.nuggets.life/agent` — and grant scope `agent.invoke`. A deliberate, insecure `allow_any_audience=True` escape hatch skips **only** the `aud` match (everything else still verified) and logs a warning; it is not for production. (The core authority middleware is unaffected — this is the LangGraph bearer-auth path only.)
+- **Opaque tokens are no longer accepted on this path (JWT-only).** The unaudienced `/me` userinfo fallback was removed so it can't bypass the audience check; authenticated introspection for opaque tokens remains a documented follow-up.
+
+### Security
+
+- JWT `typ` is enforced as `at+jwt` (RFC 9068) to block ID-token/access-token confusion; `exp`/`iat` allow a 15s clock-skew tolerance matching the issuer.
+
+
+
 ## [1.1.2]
 
 Security-hardening patch from an adversarial review. No new API and no intended breaking change; two behaviors are *tightened* (see Migration).
