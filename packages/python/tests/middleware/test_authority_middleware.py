@@ -325,7 +325,22 @@ class TestSyncWrapToolCall:
         assert isinstance(result, ToolMessage)
         data = json.loads(result.content)
         assert data["status"] == "ERROR"
-        assert "Network error" in data["message"]
+        # Exception text must NOT be echoed to the LLM/user-visible message.
+        assert "Network error" not in data["message"]
+        assert "Authority evaluation failed" in data["message"]
+
+    def test_authority_exception_text_not_leaked(self, config, mock_request, mock_handler):
+        secret = "bearer-9d3f-acct-4200"
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.side_effect = ConnectionError(secret)
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        data = json.loads(result.content)
+        assert data["status"] == "ERROR"
+        assert secret not in data["message"]
+        assert "Authority evaluation failed" in data["message"]
 
     def test_proof_callback_invoked(self, config, allow_response, mock_request, mock_handler):
         callback = MagicMock()
@@ -635,6 +650,43 @@ class TestActionContextResolver:
 
         mock_handler.assert_not_called()
         assert json.loads(result.content)["status"] == "ERROR"
+
+    def test_resolver_exception_text_not_leaked(self, config, mock_handler):
+        secret = "account-9999-balance-4200"
+
+        def boom(n, a):
+            raise RuntimeError(secret)
+
+        cfg = self._cfg(config, boom)
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+
+        result = middleware.wrap_tool_call(_payments_request(), mock_handler)
+
+        mock_handler.assert_not_called()
+        data = json.loads(result.content)
+        assert data["status"] == "ERROR"
+        assert secret not in data["message"]
+        assert "Action context resolution failed" in data["message"]
+
+    async def test_async_resolver_exception_text_not_leaked(self, config, mock_async_handler):
+        secret = "account-9999-balance-4200"
+
+        def boom(n, a):
+            raise RuntimeError(secret)
+
+        cfg = self._cfg(config, boom)
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock()
+
+        result = await middleware.awrap_tool_call(_payments_request(), mock_async_handler)
+
+        mock_async_handler.assert_not_awaited()
+        data = json.loads(result.content)
+        assert data["status"] == "ERROR"
+        assert secret not in data["message"]
+        assert "Action context resolution failed" in data["message"]
 
     async def test_async_merges_amount_currency(
         self, config, allow_response, mock_async_handler

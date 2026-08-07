@@ -54,7 +54,7 @@ export class NuggetsAuthorityMiddleware {
     try {
       evalRequest = this.buildEvalRequest(toolName, toolArgs);
     } catch (exc) {
-      return this.errorMessage(toolCallId, toolName, `Action context resolution failed: ${exc}`);
+      return this.errorMessage(toolCallId, toolName, `Action context resolution failed (${errorDetail(exc)})`);
     }
     const start = performance.now();
 
@@ -76,7 +76,7 @@ export class NuggetsAuthorityMiddleware {
         );
         authResponse = coerceAuthorityResponse(rawResponse);
       } catch (exc) {
-        return this.errorMessage(toolCallId, toolName, `Authority evaluation failed: ${exc}`);
+        return this.errorMessage(toolCallId, toolName, `Authority evaluation failed (${errorDetail(exc)})`);
       }
     }
 
@@ -278,6 +278,16 @@ export class NuggetsAuthorityMiddleware {
     this.proofList.push(proof);
     await this.config.onProof?.(proof);
   }
+}
+
+/**
+ * A non-sensitive descriptor of a thrown value for user-facing ERROR messages.
+ * Returns the error's class name (or the primitive type) — never the message,
+ * which can carry resolver/tool-arg data and would otherwise reach the LLM/user.
+ */
+function errorDetail(exc: unknown): string {
+  if (exc instanceof Error) return exc.name || "Error";
+  return typeof exc;
 }
 
 function validateActionContextExtras(
