@@ -253,6 +253,39 @@ class NuggetsAuthorityMiddleware:
         )
         return ToolMessage(content=content, tool_call_id=tool_call_id)
 
+    def _build_and_emit_proof(
+        self,
+        auth_response: AuthorityEvaluationResponse,
+        eval_request: AuthorityEvaluationRequest,
+        result: Any,
+        start_time: float,
+    ) -> None:
+        """Build the proof artifact from an executed tool call and emit it.
+
+        Called only after the tool has run; callers isolate its failures so a
+        completed side effect is never reported as an error.
+        """
+        result_content = ""
+        if isinstance(result, ToolMessage):
+            result_content = (
+                result.content if isinstance(result.content, str) else str(result.content)
+            )
+
+        total_latency = (time.monotonic() - start_time) * 1000
+        proof = build_proof_artifact(
+            authority_response=auth_response,
+            agent_id=self._config.agent_id,
+            controller_id=self._config.controller_id,
+            delegation_id=self._config.delegation_id,
+            tool=eval_request.action.tool,
+            parameters_hash=eval_request.action.parameters_hash,
+            result_hash=hash_result(result_content),
+            latency_ms=total_latency,
+            intent_hash=eval_request.action.intent_hash,
+            test_mode=self._config.test_mode,
+        )
+        self._emit_proof(proof)
+
     def _emit_proof(self, proof: ProofArtifact) -> None:
         """Store proof and invoke callback if configured."""
         self._proofs.append(proof)
@@ -424,26 +457,18 @@ class NuggetsAuthorityMiddleware:
         logger.info("ALLOW: tool=%s proof_id=%s", tool_name, auth_response.proof_id)
         result = handler(request)
 
-        result_content = ""
-        if isinstance(result, ToolMessage):
-            result_content = (
-                result.content if isinstance(result.content, str) else str(result.content)
+        # The side effect has now happened. From here on, a proof-build/emit or
+        # callback failure must NOT propagate — surfacing it as an error could
+        # cause the caller to retry an already-executed, non-idempotent action.
+        try:
+            self._build_and_emit_proof(auth_response, eval_request, result, start_time)
+        except Exception as exc:  # executed; proof persistence failed
+            logger.error(
+                "Tool '%s' executed but proof handling failed: %s",
+                tool_name,
+                exc,
+                exc_info=True,
             )
-
-        total_latency = (time.monotonic() - start_time) * 1000
-        proof = build_proof_artifact(
-            authority_response=auth_response,
-            agent_id=self._config.agent_id,
-            controller_id=self._config.controller_id,
-            delegation_id=self._config.delegation_id,
-            tool=tool_name,
-            parameters_hash=eval_request.action.parameters_hash,
-            result_hash=hash_result(result_content),
-            latency_ms=total_latency,
-            intent_hash=eval_request.action.intent_hash,
-            test_mode=self._config.test_mode,
-        )
-        self._emit_proof(proof)
 
         return result
 
@@ -524,25 +549,16 @@ class NuggetsAuthorityMiddleware:
         logger.info("ALLOW: tool=%s proof_id=%s", tool_name, auth_response.proof_id)
         result = await handler(request)
 
-        result_content = ""
-        if isinstance(result, ToolMessage):
-            result_content = (
-                result.content if isinstance(result.content, str) else str(result.content)
+        # See wrap_tool_call: never let post-execution proof/callback failures
+        # mask a completed side effect.
+        try:
+            self._build_and_emit_proof(auth_response, eval_request, result, start_time)
+        except Exception as exc:  # executed; proof persistence failed
+            logger.error(
+                "Tool '%s' executed but proof handling failed: %s",
+                tool_name,
+                exc,
+                exc_info=True,
             )
-
-        total_latency = (time.monotonic() - start_time) * 1000
-        proof = build_proof_artifact(
-            authority_response=auth_response,
-            agent_id=self._config.agent_id,
-            controller_id=self._config.controller_id,
-            delegation_id=self._config.delegation_id,
-            tool=tool_name,
-            parameters_hash=eval_request.action.parameters_hash,
-            result_hash=hash_result(result_content),
-            latency_ms=total_latency,
-            intent_hash=eval_request.action.intent_hash,
-            test_mode=self._config.test_mode,
-        )
-        self._emit_proof(proof)
 
         return result

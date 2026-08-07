@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A post-execution proof/callback failure no longer masks a completed tool run** (both SDKs, sync + async). Once the wrapped tool has executed, proof-artifact construction, `on_proof`/`onProof` callback, and result-hashing failures are isolated (logged in Python; swallowed in JS) and the tool's result is still returned — so a completed, possibly non-idempotent side effect can't be misreported as an error and retried.
+
 ### Security
 
 - **LangGraph OIDC token verifier hardened** (`NuggetsTokenVerifier` / `NuggetsAuth`):
