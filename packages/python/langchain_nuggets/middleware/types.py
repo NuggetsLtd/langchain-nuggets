@@ -25,6 +25,11 @@ class MiddlewareConfig(BaseModel):
     authority_audience: Optional[str] = None
     on_proof: Optional[Callable[["ProofArtifact"], None]] = None
     intent_resolver: Optional[Callable[[str, Dict[str, Any]], Optional[str]]] = None
+    # Opt-in resolver mapping a tool call to {target?, amount_minor?, currency?}.
+    # The sole source of payment money fields — never guessed from tool args.
+    action_context_resolver: Optional[
+        Callable[[str, Dict[str, Any]], Optional[Dict[str, Any]]]
+    ] = None
     ca_cert: Optional[str] = None
     verify_ssl: bool = True
     test_mode: bool = False
@@ -80,6 +85,8 @@ class ActionContext(BaseModel):
 
     tool: str
     target: Optional[str] = None
+    amount_minor: Optional[int] = None
+    currency: Optional[str] = None
     parameters_hash: str
     intent: Optional[str] = None
     intent_hash: Optional[str] = None
@@ -96,7 +103,7 @@ class AuthorityEvaluationRequest(BaseModel):
     action: ActionContext
 
 
-AuthorityDecision = Literal["ALLOW", "DENY"]
+AuthorityDecision = Literal["ALLOW", "DENY", "ESCALATE"]
 
 
 class AuthorityEvaluationResponse(BaseModel):
@@ -106,6 +113,10 @@ class AuthorityEvaluationResponse(BaseModel):
     proof_id: str
     signature: str
     reason_code: Optional[str] = None
+    # Server-issued approval handle for ESCALATE. NOT part of the signed
+    # authority receipt — surface it as an opaque handle, not a verified field.
+    # Preserved verbatim (the backend may issue it as a number or a string).
+    approval_id: Optional[Union[str, int]] = None
     constraints_evaluated: List[str] = []
 
 

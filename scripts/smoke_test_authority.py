@@ -23,8 +23,16 @@ Usage:
     export NUGGETS_TOOL="your_tool_name"    # any capability in the delegation's allowed_capabilities
     export NUGGETS_TARGET="your_target"     # optional; must match the
                                             # delegation's allowed_targets when set
+    export NUGGETS_AMOUNT_MINOR="500"       # optional; minor units (e.g. 500 = £5.00)
+    export NUGGETS_CURRENCY="GBP"           # optional; ISO-4217, uppercase
 
     python scripts/smoke_test_authority.py
+
+The handler is a no-op — this script NEVER executes a real payment. Amount and
+currency are synthetic inputs used to exercise ALLOW / ESCALATE / DENY routing.
+On ESCALATE the script reports PENDING_APPROVAL and exits 0 without running any
+handler. Use a disposable, scoped delegation and a freshly downloaded key, and
+revoke both after testing.
 """
 from __future__ import annotations
 
@@ -76,6 +84,24 @@ def main() -> None:
     if not tool_name:
         fail("NUGGETS_TOOL must be set to a capability listed in the delegation")
 
+    target = os.environ.get("NUGGETS_TARGET")
+    amount_minor = os.environ.get("NUGGETS_AMOUNT_MINOR")
+    currency = os.environ.get("NUGGETS_CURRENCY")
+
+    # Only supply an action-context resolver when a synthetic amount/currency is
+    # requested. Never guess money fields — the resolver is the sole source.
+    action_context_resolver = None
+    if amount_minor or currency:
+        def action_context_resolver(_name: str, _args: Dict[str, Any]) -> Dict[str, Any]:
+            extras: Dict[str, Any] = {}
+            if amount_minor:
+                extras["amount_minor"] = int(amount_minor)
+            if currency:
+                extras["currency"] = currency
+            if target:
+                extras["target"] = target
+            return extras
+
     config = MiddlewareConfig(
         api_url=os.environ["NUGGETS_AUTHORITY_URL"],
         oidc_issuer_url=os.environ["NUGGETS_OIDC_ISSUER_URL"],
@@ -83,11 +109,11 @@ def main() -> None:
         controller_id=os.environ["NUGGETS_CONTROLLER_ID"],
         delegation_id=os.environ["NUGGETS_DELEGATION_ID"],
         agent_private_key=load_key_from_env(),
+        action_context_resolver=action_context_resolver,
     )
 
     middleware = NuggetsAuthorityMiddleware(config)
 
-    target = os.environ.get("NUGGETS_TARGET")
     args: Dict[str, Any] = {"userId": "smoke-test-user"}
     if target:
         args["target"] = target
@@ -100,17 +126,22 @@ def main() -> None:
         }
     )
 
+    # No-op handler: it never performs a payment or any side effect.
     def handler(_: object) -> ToolMessage:
         return ToolMessage(
             content=json.dumps({"status": "ok", "smoke": True}),
             tool_call_id="smoke-call-001",
         )
 
+    print("NOTE: smoke handler is a no-op — it does NOT execute any payment.")
     print(f"Calling authority at {config.api_url}{config.authority_endpoint}")
     print(f"  agent_id      = {config.agent_id}")
     print(f"  controller_id = {config.controller_id}")
     print(f"  delegation_id = {config.delegation_id}")
     print(f"  tool          = {tool_name}")
+    if amount_minor or currency:
+        print(f"  amount_minor  = {amount_minor or '?'}")
+        print(f"  currency      = {currency or '?'}")
 
     result = middleware.wrap_tool_call(request, handler)
 
@@ -121,6 +152,14 @@ def main() -> None:
         payload = json.loads(result.content)
     except json.JSONDecodeError:
         fail(f"result content not JSON: {result.content!r}")
+
+    if payload.get("status") == "PENDING_APPROVAL":
+        print()
+        print("PENDING_APPROVAL (ESCALATE)")
+        print(f"  approval_id    = {payload.get('approval_id')}")
+        print(f"  reason_code    = {payload.get('reason_code')}")
+        print("  no handler ran; no payment made. The application owns polling/redeem.")
+        sys.exit(0)
 
     if payload.get("status") in {"DENIED", "ERROR"}:
         fail(

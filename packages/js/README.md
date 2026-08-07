@@ -58,6 +58,35 @@ for (const proof of middleware.proofs) {
 
 The core `NuggetsAuthorityMiddleware` import stays dependency-light (`@langchain/core` only); `langchain` is required only when you use the `/agent` adapter.
 
+## Payments & approvals
+
+For monetary tools, supply an **action-context resolver** to attach the payment `amount_minor` (minor units, integer) and `currency` (ISO-4217, uppercase) to the signed action. The resolver is the *only* source of money fields — they are never inferred from tool args — and `NUGGETS_TOOL` / the tool name must **exactly match** the delegation capability (e.g. `nuggets.payments.send`).
+
+```ts
+const config = new MiddlewareConfig({
+  // ...
+  actionContextResolver: (toolName, args) => ({
+    amount_minor: 500,           // £5.00
+    currency: "GBP",
+    target: "did:web:merchant"   // optional; overrides the args-derived target
+  })
+});
+```
+
+`amount_minor` and `currency` are validated as a pair — supply both or neither. Invalid money fields (negative/non-integer amount, non-`^[A-Z]{3}$` currency, one without the other) fail **closed** with an `ERROR` `ToolMessage` before the tool runs.
+
+**ESCALATE (human approval).** When the authority requires approval it returns `ESCALATE`. The middleware verifies the signed decision — exactly as it does for `ALLOW` — then returns a `PENDING_APPROVAL` `ToolMessage`. This is **not** an error, and the wrapped tool never runs:
+
+```json
+{ "status": "PENDING_APPROVAL", "approval_id": 500, "reason_code": "APPROVAL_REQUIRED", "proof_id": "...", "signature": "..." }
+```
+
+Operational boundary:
+
+- **No payment handler runs** on `PENDING_APPROVAL` — nothing is executed or charged.
+- The **application owns polling/redeem** of the approval, out-of-band, using `approval_id`.
+- `approval_id` is a **server-issued handle, not part of the signed receipt** — treat it as an opaque identifier, not a cryptographically verified field. (The ESCALATE *decision* signature is verified.)
+
 ## Live smoke test
 
 End-to-end check against a deployed backend (mirrors the Python `scripts/smoke_test_authority.py`). Pre-create a delegation with your test tool in `allowed_capabilities`, then from `packages/js`:
@@ -71,10 +100,14 @@ export NUGGETS_CONTROLLER_ID="..."
 export NUGGETS_DELEGATION_ID="10"
 export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"   # or PEM
 export NUGGETS_TOOL="your_tool_name"   # an in-scope allowed_capability
+export NUGGETS_AMOUNT_MINOR="500"      # optional; 500 = £5.00 — exercises payment routing
+export NUGGETS_CURRENCY="GBP"          # optional; ISO-4217, uppercase
 node scripts/smoke-test-authority.mjs
 ```
 
-Exits 0 when the backend returns `ALLOW` and a verified proof artifact is emitted.
+Exits 0 when the backend returns `ALLOW` and a verified proof artifact is emitted, or on `ESCALATE` (`PENDING_APPROVAL`); the handler is a no-op and never executes a payment.
+
+**Key hygiene.** Keep the private JWKS in a secret store or mounted secret — never in source control, logs, or `Downloads`; treat any previously downloaded key as stale. For demos and smoke runs, use a **disposable, scoped delegation** and a freshly downloaded key, and **revoke both** afterwards.
 
 This package is at parity with the Python `langchain-nuggets` package — bearer minting, `agent_proof` signing, authority evaluation, discover-and-pin proof verification, and emitted proof artifacts — and has been validated end-to-end against a live backend.
 

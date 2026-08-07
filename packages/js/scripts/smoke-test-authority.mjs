@@ -17,7 +17,12 @@
  *   export NUGGETS_AGENT_PRIVATE_KEY="/path/to/agent-jwks.json"   # or PEM
  *   export NUGGETS_TOOL="your_tool_name"   # an in-scope allowed_capability
  *   export NUGGETS_TARGET="optional-in-scope-target"
+ *   export NUGGETS_AMOUNT_MINOR="500"     # optional; minor units (e.g. 500 = £5.00)
+ *   export NUGGETS_CURRENCY="GBP"         # optional; ISO-4217, uppercase
  *   node scripts/smoke-test-authority.mjs
+ *
+ * The handler is a no-op — this script NEVER executes a real payment. Amount/
+ * currency are synthetic inputs to exercise ALLOW / ESCALATE / DENY routing.
  */
 import { readFileSync } from "node:fs";
 import { ToolMessage } from "@langchain/core/messages";
@@ -41,26 +46,45 @@ function loadKey(raw) {
   return content.trimStart().startsWith("{") ? JSON.parse(content) : content;
 }
 
+const tool = env("NUGGETS_TOOL");
+const target = env("NUGGETS_TARGET", false);
+const amountMinor = env("NUGGETS_AMOUNT_MINOR", false);
+const currency = env("NUGGETS_CURRENCY", false);
+
+// Only supply an action-context resolver when a synthetic amount/currency is
+// requested. Never guess money fields — the resolver is the sole source.
+const actionContextResolver = (amountMinor || currency)
+  ? () => ({
+      ...(amountMinor ? { amount_minor: Number(amountMinor) } : {}),
+      ...(currency ? { currency } : {}),
+      ...(target ? { target } : {})
+    })
+  : undefined;
+
 const config = new MiddlewareConfig({
   apiUrl: env("NUGGETS_AUTHORITY_URL"),
   oidcIssuerUrl: env("NUGGETS_OIDC_ISSUER_URL"),
   agentId: env("NUGGETS_AGENT_ID"),
   controllerId: env("NUGGETS_CONTROLLER_ID"),
   delegationId: env("NUGGETS_DELEGATION_ID"),
-  agentPrivateKey: loadKey(env("NUGGETS_AGENT_PRIVATE_KEY"))
+  agentPrivateKey: loadKey(env("NUGGETS_AGENT_PRIVATE_KEY")),
+  actionContextResolver
 });
-
-const tool = env("NUGGETS_TOOL");
-const target = env("NUGGETS_TARGET", false);
 
 const middleware = new NuggetsAuthorityMiddleware(config);
 const request = {
   tool_call: { name: tool, args: target ? { target } : {}, id: "smoke-call" }
 };
+// No-op handler: it never performs a payment or any side effect.
 const handler = async () =>
   new ToolMessage({ content: JSON.stringify({ status: "ok" }), tool_call_id: "smoke-call" });
 
-console.log(`→ ${config.apiUrl}${config.authorityEndpoint}  tool=${tool}${target ? ` target=${target}` : ""}`);
+console.log("NOTE: smoke handler is a no-op — it does NOT execute any payment.");
+console.log(
+  `→ ${config.apiUrl}${config.authorityEndpoint}  tool=${tool}` +
+    `${target ? ` target=${target}` : ""}` +
+    `${amountMinor || currency ? ` amount_minor=${amountMinor ?? "?"} currency=${currency ?? "?"}` : ""}`
+);
 
 const result = await middleware.wrapToolCall(request, handler);
 const content = result instanceof ToolMessage ? String(result.content) : JSON.stringify(result);
@@ -70,6 +94,11 @@ try {
   parsed = JSON.parse(content);
 } catch {
   parsed = { status: "ok" };
+}
+
+if (parsed.status === "PENDING_APPROVAL") {
+  console.log(`⏸ ESCALATE — approval ${parsed.approval_id ?? "?"} (${parsed.reason_code ?? ""}); no tool executed, no payment made`);
+  process.exit(0);
 }
 
 if (parsed.status === "DENIED" || parsed.status === "ERROR") {

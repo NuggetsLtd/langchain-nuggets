@@ -15,6 +15,7 @@ import {
 } from "./proofVerification.js";
 import type {
   ActionContext,
+  ActionContextExtras,
   AuthorityEvaluationRequest,
   AuthorityEvaluationResponse,
   MiddlewareConfig,
@@ -49,7 +50,12 @@ export class NuggetsAuthorityMiddleware {
     const toolName = toolCall.name;
     const toolArgs = toolCall.args;
     const toolCallId = toolCall.id;
-    const evalRequest = this.buildEvalRequest(toolName, toolArgs);
+    let evalRequest: AuthorityEvaluationRequest;
+    try {
+      evalRequest = this.buildEvalRequest(toolName, toolArgs);
+    } catch (exc) {
+      return this.errorMessage(toolCallId, toolName, `Action context resolution failed: ${exc}`);
+    }
     const start = performance.now();
 
     let authResponse: AuthorityEvaluationResponse;
@@ -78,11 +84,17 @@ export class NuggetsAuthorityMiddleware {
       return this.denyMessage(toolCallId, toolName, authResponse);
     }
 
+    // Verify the signed decision for BOTH ALLOW and ESCALATE before acting on it.
     const proofFailure = await this.verifyProofOrNull(authResponse, toolCallId, toolName);
     if (proofFailure) {
       return proofFailure;
     }
 
+    if (authResponse.decision === "ESCALATE") {
+      return this.escalateMessage(toolCallId, toolName, authResponse);
+    }
+
+    // ALLOW: execute + emit ProofArtifact.
     const result = await handler(request);
     const resultContent = extractResultContent(result);
     const proof = buildProofArtifact({
@@ -110,19 +122,22 @@ export class NuggetsAuthorityMiddleware {
 
   buildEvalRequest(toolName: string, toolArgs: ToolArgs): AuthorityEvaluationRequest {
     const intent = this.config.intentResolver?.(toolName, toolArgs) ?? null;
-    const target = typeof toolArgs.target === "undefined" ? toolName : String(toolArgs.target);
+    const extras = validateActionContextExtras(this.config.actionContextResolver?.(toolName, toolArgs));
+    const defaultTarget = typeof toolArgs.target === "undefined" ? toolName : String(toolArgs.target);
     const parametersHash = hashParameters(toolArgs);
     const timestamp = new Date().toISOString();
     const intentHash = intent === null ? null : hashIntent(intent, parametersHash, timestamp);
     const action: ActionContext = {
       tool: toolName,
-      target,
+      target: extras?.target ?? defaultTarget,
       parameters_hash: parametersHash,
       intent,
       intent_hash: intentHash,
       timestamp,
       nonce: randomUUID()
     };
+    if (typeof extras?.amount_minor === "number") action.amount_minor = extras.amount_minor;
+    if (typeof extras?.currency === "string") action.currency = extras.currency;
     return {
       agent_id: this.config.agentId,
       controller_id: this.config.controllerId,
@@ -212,6 +227,24 @@ export class NuggetsAuthorityMiddleware {
     });
   }
 
+  private escalateMessage(toolCallId: string, toolName: string, response: AuthorityEvaluationResponse): ToolMessage {
+    return new ToolMessage({
+      content: JSON.stringify({
+        status: "PENDING_APPROVAL",
+        tool: toolName,
+        approval_id: response.approval_id ?? null,
+        reason_code: response.reason_code ?? null,
+        proof_id: response.proof_id,
+        signature: response.signature,
+        constraints_evaluated: response.constraints_evaluated ?? [],
+        message: `Execution of '${toolName}' is pending human approval${
+          response.approval_id ? ` (approval ${response.approval_id})` : ""
+        }. This is not an error. The ESCALATE decision's signature is verified; 'approval_id' is a server-issued handle, not part of the signed receipt. Present or poll the approval to continue.`
+      }),
+      tool_call_id: toolCallId
+    });
+  }
+
   private errorMessage(toolCallId: string, toolName: string, message: string): ToolMessage {
     return new ToolMessage({
       content: JSON.stringify({
@@ -247,12 +280,36 @@ export class NuggetsAuthorityMiddleware {
   }
 }
 
+function validateActionContextExtras(
+  extras: ActionContextExtras | undefined
+): ActionContextExtras | undefined {
+  if (extras === undefined) return undefined;
+  if (typeof extras !== "object" || extras === null) {
+    throw new Error("actionContextResolver must return an object or undefined");
+  }
+  if (extras.target !== undefined && (typeof extras.target !== "string" || extras.target.trim().length === 0)) {
+    throw new Error("actionContextResolver target must be a non-empty string");
+  }
+  const hasAmount = extras.amount_minor !== undefined;
+  const hasCurrency = extras.currency !== undefined;
+  if (hasAmount !== hasCurrency) {
+    throw new Error("actionContextResolver must supply amount_minor and currency together, or neither");
+  }
+  if (hasAmount && (!Number.isSafeInteger(extras.amount_minor) || (extras.amount_minor as number) < 0)) {
+    throw new Error("actionContextResolver amount_minor must be a non-negative safe integer");
+  }
+  if (hasCurrency && !/^[A-Z]{3}$/.test(extras.currency as string)) {
+    throw new Error("actionContextResolver currency must be an uppercase ISO-4217 code");
+  }
+  return extras;
+}
+
 function coerceAuthorityResponse(value: unknown): AuthorityEvaluationResponse {
   if (!value || typeof value !== "object") {
     throw new Error("authority response is not an object");
   }
   const response = value as Record<string, unknown>;
-  if (response.decision !== "ALLOW" && response.decision !== "DENY") {
+  if (response.decision !== "ALLOW" && response.decision !== "DENY" && response.decision !== "ESCALATE") {
     throw new Error("authority response missing decision");
   }
   if (typeof response.proof_id !== "string") {
@@ -266,6 +323,10 @@ function coerceAuthorityResponse(value: unknown): AuthorityEvaluationResponse {
     proof_id: response.proof_id,
     signature: response.signature,
     reason_code: typeof response.reason_code === "string" ? response.reason_code : null,
+    approval_id:
+      typeof response.approval_id === "string" || typeof response.approval_id === "number"
+        ? response.approval_id
+        : null,
     constraints_evaluated: Array.isArray(response.constraints_evaluated)
       ? response.constraints_evaluated.filter((item): item is string => typeof item === "string")
       : []

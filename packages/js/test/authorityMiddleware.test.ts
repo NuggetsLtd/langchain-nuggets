@@ -380,6 +380,221 @@ describe("constraints_evaluated", () => {
   });
 });
 
+describe("action context resolver", () => {
+  it("merges validated amount_minor/currency/target into the signed action", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ amount_minor: 100, currency: "GBP", target: "did:web:merchant" })
+    }));
+    const post = allowPost();
+    withClient(mw, post);
+    await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: { note: "x" }, id: "c1" } },
+      handler()
+    );
+    const action = post.mock.calls[0][1].action;
+    expect(action.amount_minor).toBe(100);
+    expect(action.currency).toBe("GBP");
+    expect(action.target).toBe("did:web:merchant");
+  });
+
+  it("keeps the args.target default when the resolver omits target", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ amount_minor: 100, currency: "GBP" })
+    }));
+    const post = allowPost();
+    withClient(mw, post);
+    await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: { target: "stripe" }, id: "c1" } },
+      handler()
+    );
+    expect(post.mock.calls[0][1].action.target).toBe("stripe");
+  });
+
+  it("fails closed (ERROR, handler not called) on invalid amount_minor", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ amount_minor: -1, currency: "GBP" })
+    }));
+    const h = handler();
+    withClient(mw, allowPost());
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+
+  it("fails closed on invalid currency", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ amount_minor: 100, currency: "gbp" })
+    }));
+    const h = handler();
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+
+  it("fails closed when amount is supplied without currency (and vice-versa)", async () => {
+    for (const extras of [{ amount_minor: 100 }, { currency: "GBP" }]) {
+      const mw = new NuggetsAuthorityMiddleware(makeConfig({ actionContextResolver: () => extras }));
+      const h = handler();
+      const res = (await mw.wrapToolCall(
+        { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+      )) as ToolMessage;
+      expect(h).not.toHaveBeenCalled();
+      expect(JSON.parse(res.content as string).status).toBe("ERROR");
+    }
+  });
+
+  it("fails closed on a whitespace-only target", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ target: "   " })
+    }));
+    withClient(mw, allowPost()); // would ALLOW+run the handler if validation let it through
+    const h = handler();
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "lookup", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+
+  it("allows both amount and currency to be absent (non-monetary tool)", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ target: "did:web:merchant" })
+    }));
+    const post = allowPost();
+    withClient(mw, post);
+    await mw.wrapToolCall(
+      { tool_call: { name: "lookup", args: {}, id: "c1" } }, handler()
+    );
+    const action = post.mock.calls[0][1].action;
+    expect(action.amount_minor).toBeUndefined();
+    expect(action.currency).toBeUndefined();
+  });
+
+  it("fails closed when the resolver throws — before the handler and even in testMode", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      testMode: true,
+      actionContextResolver: () => { throw new Error("resolver boom"); }
+    }));
+    const h = handler();
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+});
+
+describe("ESCALATE decision", () => {
+  const escalateResponse = () => ({
+    decision: "ESCALATE" as const,
+    proof_id: "proof-esc",
+    signature: "sig-esc",
+    reason_code: "APPROVAL_REQUIRED",
+    approval_id: "appr-123",
+    constraints_evaluated: ["approval_threshold"]
+  });
+
+  it("does not call the handler and returns PENDING_APPROVAL (not ERROR/DENIED)", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig()); // verifyProofs: false
+    withClient(mw, vi.fn(async () => escalateResponse()));
+    const h = handler();
+    const res = (await mw.wrapToolCall(request(), h)) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("PENDING_APPROVAL");
+    expect(data.approval_id).toBe("appr-123");
+    expect(data.reason_code).toBe("APPROVAL_REQUIRED");
+  });
+
+  it("surfaces a numeric approval_id verbatim (does not drop it to null)", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig()); // verifyProofs: false
+    withClient(mw, vi.fn(async () => ({
+      decision: "ESCALATE", proof_id: "p", signature: "s",
+      reason_code: "APPROVAL_REQUIRED", approval_id: 500
+    })));
+    const res = (await mw.wrapToolCall(request(), handler())) as ToolMessage;
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("PENDING_APPROVAL");
+    expect(data.approval_id).toBe(500);
+  });
+
+  it("emits no proof artifact on ESCALATE", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig());
+    withClient(mw, vi.fn(async () => escalateResponse()));
+    await mw.wrapToolCall(request(), handler());
+    expect(mw.proofs).toHaveLength(0);
+  });
+
+  it("rejects an ESCALATE response with no signature", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig());
+    withClient(mw, vi.fn(async () => ({ decision: "ESCALATE", proof_id: "p", approval_id: "a" })));
+    const res = (await mw.wrapToolCall(request(), handler())) as ToolMessage;
+    // coerce throws → fail-closed ERROR
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+
+  it("fails closed (PROOF_VERIFICATION_FAILED) on ESCALATE with an unverifiable signature", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("no network"); }));
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({ verifyProofs: true }));
+    withClient(mw, vi.fn(async () => escalateResponse()));
+    const h = handler();
+    const res = (await mw.wrapToolCall(request(), h)) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("DENIED");
+    expect(data.reason_code).toBe("PROOF_VERIFICATION_FAILED");
+  });
+
+  it("verifies the signature then returns PENDING_APPROVAL with the verified receipt", async () => {
+    const portal = await generateKeyPair("RS256", { extractable: true });
+    const portalJwk: JWK = { ...(await exportJWK(portal.publicKey)), kid: "portal-k1", alg: "RS256" };
+    const issuer = "did:web:auth.nuggets.test:portalC1";
+    const proofJws = await new SignJWT({
+      proof_id: "proof-real",
+      agent_id: "agent-123",
+      controller_id: "org-456",
+      constraints_evaluated: ["tool_allowed"],
+      decision: "ESCALATE",
+      iss: issuer
+    })
+      .setProtectedHeader({ alg: "RS256", kid: "portal-k1" })
+      .setIssuedAt()
+      .sign(portal.privateKey);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("authority-configuration")) {
+          return new Response(
+            JSON.stringify({ issuer, jwks_uri: "https://api.nuggets.test/.well-known/jwks.json" }),
+            { status: 200 }
+          );
+        }
+        return new Response(JSON.stringify({ keys: [portalJwk] }), { status: 200 });
+      })
+    );
+
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({ verifyProofs: true }));
+    withClient(mw, vi.fn(async () => ({
+      decision: "ESCALATE", proof_id: "proof-real", signature: proofJws,
+      approval_id: "appr-1", reason_code: "APPROVAL_REQUIRED", constraints_evaluated: ["tool_allowed"]
+    })));
+    const h = handler();
+    const res = (await mw.wrapToolCall(request(), h)) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("PENDING_APPROVAL");
+    expect(data.approval_id).toBe("appr-1");
+    expect(data.proof_id).toBe("proof-real");   // verified receipt data present
+    expect(data.signature).toBe(proofJws);
+    expect(mw.proofs).toHaveLength(0);           // still no post-execution ProofArtifact
+  });
+});
+
 describe("awrapToolCall", () => {
   it("delegates to wrapToolCall (ALLOW path)", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
