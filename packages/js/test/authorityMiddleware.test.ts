@@ -161,6 +161,22 @@ describe("ALLOW / DENY / ERROR routing", () => {
     expect(result.content).toContain("success");
   });
 
+  it("does not mask a completed execution when result serialization/proof-building throws", async () => {
+    // The isolation covers extractResultContent/hashResult/buildProofArtifact too,
+    // not just onProof. A tool result whose content access throws must still be
+    // returned (and no proof emitted).
+    const weird = { get content(): string { throw new Error("serialize boom"); } };
+    const mw = new NuggetsAuthorityMiddleware(makeConfig());
+    withClient(mw, allowPost());
+    const h = vi.fn(async () => weird);
+
+    const res = await mw.wrapToolCall(request(), h);
+
+    expect(h).toHaveBeenCalledOnce();
+    expect(res).toBe(weird);
+    expect(mw.proofs).toHaveLength(0);
+  });
+
   it("invokes the proof callback on ALLOW", async () => {
     const onProof = vi.fn();
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ onProof }));
