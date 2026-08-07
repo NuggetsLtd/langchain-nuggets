@@ -518,6 +518,22 @@ describe("action context resolver", () => {
     expect(data.message).not.toContain(secret);
     expect(data.message).toContain("Action context resolution failed");
   });
+
+  it("does not leak a resolver-overwritten Error.name into the ERROR message", async () => {
+    const secret = "name-injected-balance-4200";
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => { throw Object.assign(new Error("boom"), { name: secret }); }
+    }));
+    const h = handler();
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("ERROR");
+    expect(data.message).not.toContain(secret);
+    expect(data.message).toContain("Action context resolution failed");
+  });
 });
 
 describe("ESCALATE decision", () => {

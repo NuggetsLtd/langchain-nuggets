@@ -282,11 +282,13 @@ export class NuggetsAuthorityMiddleware {
 
 /**
  * A non-sensitive descriptor of a thrown value for user-facing ERROR messages.
- * Returns the error's class name (or the primitive type) — never the message,
- * which can carry resolver/tool-arg data and would otherwise reach the LLM/user.
+ * Returns the error's *constructor* name (or the primitive type) — never the
+ * message or the instance `.name`, both of which are writable and can carry
+ * resolver/tool-arg data that would otherwise reach the LLM/user. The
+ * constructor name reflects the (statically defined) class, so it is safe.
  */
 function errorDetail(exc: unknown): string {
-  if (exc instanceof Error) return exc.name || "Error";
+  if (exc instanceof Error) return exc.constructor?.name || "Error";
   return typeof exc;
 }
 
