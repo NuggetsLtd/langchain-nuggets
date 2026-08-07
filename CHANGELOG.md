@@ -8,17 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Security
 
-- **`ownership_filter()` now implements LangGraph's ownership contract.** It previously wrote a top-level `value["owner"]` and returned the entire payload as the filter, and mis-routed dict-shaped read/search values — which could create unowned resources, produce malformed filters, and (without per-op handlers) expose data across tenants. It now stamps `value["metadata"]["owner"]` on writes, returns the exact-match `{"owner": identity}` filter for every operation, and **fails closed (403)** when there is no authenticated identity. README shows registering it across create/read/search/update/delete.
+- **LangGraph OIDC token verifier hardened** (`NuggetsTokenVerifier` / `NuggetsAuth`):
+  - JWT verification now **fails closed when no `audience` is configured** (RFC 9068), instead of silently disabling `aud` checks — so a correctly-signed issuer token minted for a different client/resource is no longer accepted. A deliberate `allow_any_audience=True` opt-out is available. README updated to set `audience`.
+  - The verification algorithm is pinned to a fixed `["RS256"]` allowlist rather than taken from the (attacker-controlled) token header, and JWKS key selection filters by `kty`/`use`/`alg`.
+- **`ownership_filter()` now implements LangGraph's ownership contract.** It previously wrote a top-level `value["owner"]` and returned the entire payload as the filter, and mis-routed dict-shaped read/search values — which could create unowned resources, produce malformed filters, and (without per-op handlers) expose data across tenants. It now stamps `value["metadata"]["owner"]` on writes, returns the exact-match `{"owner": identity}` filter for every operation, and **fails closed (403)** when there is no authenticated identity or the payload's `metadata` is not a mapping. README shows registering it across create/read/search/update/delete.
+- **JS supply-chain hardening.** CI now runs a production-scoped `npm audit` (`--omit=dev --audit-level=low`) so shipped dependencies are gated deterministically; Dependabot now covers the `packages/js` npm ecosystem; and the flagged dev-only `postcss` advisory was cleared via a lockfile bump. (Production npm dependencies were, and remain, advisory-free.)
 
 ### Fixed
 
 - **A post-execution proof/callback failure no longer masks a completed tool run** (both SDKs, sync + async). Once the wrapped tool has executed, proof-artifact construction, `on_proof`/`onProof` callback, and result-hashing failures are isolated (logged in Python; swallowed in JS) and the tool's result is still returned — so a completed, possibly non-idempotent side effect can't be misreported as an error and retried.
-
-### Security
-
-- **LangGraph OIDC token verifier hardened** (`NuggetsTokenVerifier` / `NuggetsAuth`):
-  - JWT verification now **fails closed when no `audience` is configured** (RFC 9068), instead of silently disabling `aud` checks — so a correctly-signed issuer token minted for a different client/resource is no longer accepted. A deliberate `allow_any_audience=True` opt-out is available. README updated to set `audience`.
-  - The verification algorithm is pinned to a fixed `["RS256"]` allowlist rather than taken from the (attacker-controlled) token header, and JWKS key selection filters by `kty`/`use`/`alg`.
 
 ## [1.1.1]
 
