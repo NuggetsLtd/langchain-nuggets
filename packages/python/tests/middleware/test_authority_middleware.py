@@ -651,6 +651,188 @@ class TestActionContextResolver:
         assert action["currency"] == "GBP"
 
 
+def _escalate_response():
+    return {
+        "decision": "ESCALATE",
+        "proof_id": "proof-esc",
+        "signature": "sig-esc",
+        "reason_code": "APPROVAL_REQUIRED",
+        "approval_id": "appr-123",
+        "constraints_evaluated": ["approval_threshold"],
+    }
+
+
+class TestEscalateDecision:
+    def test_escalate_returns_pending_approval_not_error(
+        self, config, mock_request, mock_handler
+    ):
+        # config has verify_proofs=False
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = _escalate_response()
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        mock_handler.assert_not_called()
+        data = json.loads(result.content)
+        assert data["status"] == "PENDING_APPROVAL"
+        assert data["approval_id"] == "appr-123"
+        assert data["reason_code"] == "APPROVAL_REQUIRED"
+        assert middleware.proofs == []
+
+    def test_escalate_surfaces_numeric_approval_id_verbatim(
+        self, config, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        resp = _escalate_response()
+        resp["approval_id"] = 500
+        middleware._client.post.return_value = resp
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        data = json.loads(result.content)
+        assert data["status"] == "PENDING_APPROVAL"
+        assert data["approval_id"] == 500
+
+    def test_escalate_emits_no_proof_artifact(
+        self, config, mock_request, mock_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = _escalate_response()
+
+        middleware.wrap_tool_call(mock_request, mock_handler)
+
+        assert middleware.proofs == []
+
+    def test_escalate_response_requires_signature(self):
+        from pydantic import ValidationError
+
+        from langchain_nuggets.middleware.types import AuthorityEvaluationResponse
+
+        with pytest.raises(ValidationError):
+            AuthorityEvaluationResponse(decision="ESCALATE", proof_id="p", approval_id="a")
+
+    def test_escalate_with_unverifiable_signature_fails_closed(
+        self, config, mock_request, mock_handler
+    ):
+        config = config.model_copy(update={"verify_proofs": True})
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = _escalate_response()
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        mock_handler.assert_not_called()
+        data = json.loads(result.content)
+        assert data["status"] == "DENIED"
+        assert data["reason_code"] == "PROOF_VERIFICATION_FAILED"
+
+    @respx.mock
+    def test_escalate_with_verifiable_signature_returns_verified_receipt(
+        self, rsa_keypair, mock_request, mock_handler
+    ):
+        from langchain_nuggets.middleware.proof_verification import _reset_caches
+
+        _reset_caches()
+        kid = "portal-k1"
+        issuer = "did:web:auth.nuggets.test:portalC1"
+        portal = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_jwk = json.loads(RSAAlgorithm.to_jwk(portal.public_key()))
+        public_jwk.update({"kid": kid, "alg": "RS256"})
+        respx.get("https://api.nuggets.test/.well-known/authority-configuration").mock(
+            return_value=Response(
+                200,
+                json={
+                    "issuer": issuer,
+                    "jwks_uri": "https://api.nuggets.test/.well-known/jwks.json",
+                },
+            )
+        )
+        respx.get("https://api.nuggets.test/.well-known/jwks.json").mock(
+            return_value=Response(200, json={"keys": [public_jwk]})
+        )
+        portal_pem = portal.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode()
+        proof_jws = jwt.encode(
+            {
+                "proof_id": "proof-real",
+                "agent_id": "agent-123",
+                "controller_id": "org-456",
+                "constraints_evaluated": ["tool_allowed"],
+                "decision": "ESCALATE",
+                "iat": int(time.time()),
+                "iss": issuer,
+            },
+            portal_pem,
+            algorithm="RS256",
+            headers={"kid": kid},
+        )
+        cfg = MiddlewareConfig(
+            api_url="https://api.nuggets.test",
+            oidc_issuer_url="https://auth.nuggets.test",
+            agent_id="agent-123",
+            controller_id="org-456",
+            delegation_id="del-789",
+            agent_private_key=rsa_keypair["private_pem"],
+            verify_proofs=True,
+        )
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = {
+            "decision": "ESCALATE",
+            "proof_id": "proof-real",
+            "signature": proof_jws,
+            "approval_id": "appr-1",
+            "reason_code": "APPROVAL_REQUIRED",
+            "constraints_evaluated": ["tool_allowed"],
+        }
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        mock_handler.assert_not_called()
+        data = json.loads(result.content)
+        assert data["status"] == "PENDING_APPROVAL"
+        assert data["approval_id"] == "appr-1"
+        assert data["proof_id"] == "proof-real"
+        assert data["signature"] == proof_jws
+        assert middleware.proofs == []
+
+    async def test_async_escalate_returns_pending_approval(
+        self, config, mock_request, mock_async_handler
+    ):
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock(return_value=_escalate_response())
+
+        result = await middleware.awrap_tool_call(mock_request, mock_async_handler)
+
+        mock_async_handler.assert_not_awaited()
+        data = json.loads(result.content)
+        assert data["status"] == "PENDING_APPROVAL"
+        assert data["approval_id"] == "appr-123"
+        assert middleware.proofs == []
+
+    async def test_async_escalate_unverifiable_fails_closed(
+        self, config, mock_request, mock_async_handler
+    ):
+        config = config.model_copy(update={"verify_proofs": True})
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock(return_value=_escalate_response())
+
+        result = await middleware.awrap_tool_call(mock_request, mock_async_handler)
+
+        mock_async_handler.assert_not_awaited()
+        data = json.loads(result.content)
+        assert data["status"] == "DENIED"
+        assert data["reason_code"] == "PROOF_VERIFICATION_FAILED"
+
+
 class TestMiddlewareTls:
     def test_threads_tls_to_client(self, rsa_keypair):
         config = MiddlewareConfig(

@@ -211,6 +211,38 @@ class NuggetsAuthorityMiddleware:
         )
         return ToolMessage(content=content, tool_call_id=tool_call_id)
 
+    def _make_escalate_message(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        response: AuthorityEvaluationResponse,
+    ) -> ToolMessage:
+        """Structured ToolMessage for an ESCALATE (human-approval-pending) decision.
+
+        The signed decision is verified before this is returned, but ``approval_id``
+        is a server-issued handle, NOT part of the signed receipt — the caller owns
+        polling/redeeming the approval out-of-band.
+        """
+        content = json.dumps(
+            {
+                "status": "PENDING_APPROVAL",
+                "tool": tool_name,
+                "approval_id": response.approval_id,
+                "reason_code": response.reason_code,
+                "proof_id": response.proof_id,
+                "signature": response.signature,
+                "constraints_evaluated": response.constraints_evaluated,
+                "message": (
+                    f"Execution of '{tool_name}' is pending human approval"
+                    + (f" (approval {response.approval_id})" if response.approval_id else "")
+                    + ". This is not an error. The ESCALATE decision's signature is "
+                    + "verified; 'approval_id' is a server-issued handle, not part of "
+                    + "the signed receipt. Present or poll the approval to continue."
+                ),
+            }
+        )
+        return ToolMessage(content=content, tool_call_id=tool_call_id)
+
     def _emit_proof(self, proof: ProofArtifact) -> None:
         """Store proof and invoke callback if configured."""
         self._proofs.append(proof)
@@ -370,9 +402,14 @@ class NuggetsAuthorityMiddleware:
             logger.info("DENY: tool=%s reason=%s", tool_name, auth_response.reason_code)
             return self._make_deny_message(tool_call_id, tool_name, auth_response)
 
+        # Verify the signed decision for BOTH ALLOW and ESCALATE before acting.
         proof_failure = self._verify_proof_or_none(auth_response, tool_call_id, tool_name)
         if proof_failure is not None:
             return proof_failure
+
+        if auth_response.decision == "ESCALATE":
+            logger.info("ESCALATE: tool=%s approval_id=%s", tool_name, auth_response.approval_id)
+            return self._make_escalate_message(tool_call_id, tool_name, auth_response)
 
         logger.info("ALLOW: tool=%s proof_id=%s", tool_name, auth_response.proof_id)
         result = handler(request)
@@ -465,9 +502,14 @@ class NuggetsAuthorityMiddleware:
             logger.info("DENY: tool=%s reason=%s", tool_name, auth_response.reason_code)
             return self._make_deny_message(tool_call_id, tool_name, auth_response)
 
+        # Verify the signed decision for BOTH ALLOW and ESCALATE before acting.
         proof_failure = await self._averify_proof_or_none(auth_response, tool_call_id, tool_name)
         if proof_failure is not None:
             return proof_failure
+
+        if auth_response.decision == "ESCALATE":
+            logger.info("ESCALATE: tool=%s approval_id=%s", tool_name, auth_response.approval_id)
+            return self._make_escalate_message(tool_call_id, tool_name, auth_response)
 
         logger.info("ALLOW: tool=%s proof_id=%s", tool_name, auth_response.proof_id)
         result = await handler(request)
