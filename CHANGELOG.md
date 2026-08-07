@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.2.0]
+
+Security-hardening release from an adversarial review. Minor bump because one change is a **breaking default** (see Migration).
+
+### ⚠️ Migration
+
+- **LangGraph OIDC auth now requires an `audience`.** If you construct `NuggetsAuth(issuer_url=...)` (or `NuggetsTokenVerifier`) **without** an `audience`, JWT verification now fails closed (HTTP 401) instead of silently skipping the `aud` check. Set `audience=<your LangGraph deployment's resource identifier>` (RFC 9068). If you have a deliberate reason to accept any audience from the issuer, pass `allow_any_audience=True` (insecure).
+- **`ownership_filter()` behavior changed.** It now stamps `value["metadata"]["owner"]` (not a top-level `value["owner"]`) and returns an `{"owner": identity}` filter for every operation. If you relied on the previous (broken) shape, re-verify ownership/read-access after upgrading, and register the handler across create/read/search/update/delete.
+
 ### Security
 
 - **LangGraph OIDC token verifier hardened** (`NuggetsTokenVerifier` / `NuggetsAuth`):
