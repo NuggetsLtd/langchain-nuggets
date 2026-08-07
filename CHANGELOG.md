@@ -8,18 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [1.2.0]
 
-Security-hardening release from an adversarial review. Minor bump because one change is a **breaking default** (see Migration).
+Security-hardening release from an adversarial review.
 
-### ⚠️ Migration
+### Migration
 
-- **LangGraph OIDC auth now requires an `audience`.** If you construct `NuggetsAuth(issuer_url=...)` (or `NuggetsTokenVerifier`) **without** an `audience`, JWT verification now fails closed (HTTP 401) instead of silently skipping the `aud` check (RFC 9068). Note: the Nuggets issuer does not yet define a LangGraph resource-server audience, so a concrete `audience=` value is not available today — that issuer-side contract is tracked in #63. Until it lands, `allow_any_audience=True` is a **temporary migration escape hatch, not a production recommendation**. Do **not** use the authority API resource (`.../api/authority`) as the LangGraph `audience` — it is a different resource.
 - **`ownership_filter()` behavior changed.** It now stamps `value["metadata"]["owner"]` (not a top-level `value["owner"]`) and returns an `{"owner": identity}` filter for every operation. If you relied on the previous (broken) shape, re-verify ownership/read-access after upgrading, and register the handler across create/read/search/update/delete.
 
 ### Security
 
-- **LangGraph OIDC token verifier hardened** (`NuggetsTokenVerifier` / `NuggetsAuth`):
-  - JWT verification now **fails closed when no `audience` is configured** (RFC 9068), instead of silently disabling `aud` checks — so a correctly-signed issuer token minted for a different client/resource is no longer accepted. A deliberate `allow_any_audience=True` opt-out is available. README updated to set `audience`.
-  - The verification algorithm is pinned to a fixed `["RS256"]` allowlist rather than taken from the (attacker-controlled) token header, and JWKS key selection filters by `kty`/`use`/`alg`.
+- **LangGraph OIDC token verifier hardened** (`NuggetsTokenVerifier` / `NuggetsAuth`): the verification algorithm is pinned to a fixed `["RS256"]` allowlist rather than taken from the (attacker-controlled) token header, and JWKS key selection filters by `kty`/`use`/`alg`. An `audience`, when configured, is enforced (RFC 9068). Making an `audience` **mandatory** (fail closed when unset) is **deferred** until the Nuggets issuer defines a LangGraph resource-server `aud` contract — see #63 — so this release does not change behavior for existing consumers who don't set one.
 - **`ownership_filter()` now implements LangGraph's ownership contract.** It previously wrote a top-level `value["owner"]` and returned the entire payload as the filter, and mis-routed dict-shaped read/search values — which could create unowned resources, produce malformed filters, and (without per-op handlers) expose data across tenants. It now stamps `value["metadata"]["owner"]` on writes, returns the exact-match `{"owner": identity}` filter for every operation, and **fails closed (403)** when there is no authenticated identity or the payload's `metadata` is not a mapping. README shows registering it across create/read/search/update/delete.
 - **JS supply-chain hardening.** CI now runs a production-scoped `npm audit` (`--omit=dev --audit-level=low`) so shipped dependencies are gated deterministically; Dependabot now covers the `packages/js` npm ecosystem; and the flagged dev-only `postcss` advisory was cleared via a lockfile bump. (Production npm dependencies were, and remain, advisory-free.)
 

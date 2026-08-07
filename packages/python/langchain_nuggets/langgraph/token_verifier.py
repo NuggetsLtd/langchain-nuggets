@@ -40,18 +40,17 @@ class NuggetsTokenVerifier:
         jwks_cache_ttl: int = 3600,
         ca_cert: Optional[str] = None,
         verify_ssl: bool = True,
-        allow_any_audience: bool = False,
     ) -> None:
         self._issuer_url = issuer_url.rstrip("/")
-        # Normalize a blank/whitespace audience to None so the fail-closed guard
-        # and the decode options agree (a blank string is "not configured", not a
-        # valid audience to enforce).
+        # Normalize a blank/whitespace audience to None so enforce-when-set is
+        # predictable (a blank string is "not configured", not an audience).
+        # When an audience IS set it is enforced; when unset, aud is not checked.
+        # NOTE: making an audience mandatory (fail closed when unset) is deferred
+        # until the issuer defines a LangGraph resource-server `aud` contract —
+        # see issue #63. Introducing that 401 default now would be a breaking
+        # change for existing consumers, so it belongs in a later major release.
         normalized_audience = audience.strip() if isinstance(audience, str) else audience
         self._audience = normalized_audience or None
-        # RFC 9068: a resource server must reject JWT access tokens whose `aud`
-        # doesn't identify it. Without an audience we can't do that, so JWT
-        # verification fails closed — unless the caller deliberately opts out.
-        self._allow_any_audience = allow_any_audience
         self._jwks_cache_ttl = jwks_cache_ttl
 
         # TLS configuration for self-hosted deployments
@@ -114,20 +113,11 @@ class NuggetsTokenVerifier:
 
         kid = unverified_header.get("kid")
 
-        # Fail closed if we can't enforce audience (RFC 9068), unless opted out.
-        if self._audience is None and not self._allow_any_audience:
-            raise NuggetsAuthError(
-                "Refusing to verify a JWT without a configured audience. Pass "
-                "audience=<your LangGraph resource identifier> (RFC 9068), or set "
-                "allow_any_audience=True to explicitly disable this check (insecure).",
-                401,
-            )
-
         # Fetch and find the matching key
         signing_key = await self._get_signing_key(kid)
 
         try:
-            claims = jwt.decode(
+            claims: Dict[str, Any] = jwt.decode(
                 token,
                 signing_key.key,
                 # Pinned allowlist — never the header's `alg`.
