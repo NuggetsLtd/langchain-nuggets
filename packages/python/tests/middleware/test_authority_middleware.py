@@ -610,7 +610,7 @@ class TestActionContextResolver:
         middleware._client = MagicMock()
         middleware._client.post.return_value = allow_response
 
-        result = middleware.wrap_tool_call(_payments_request(), mock_handler)
+        middleware.wrap_tool_call(_payments_request(), mock_handler)
 
         mock_handler.assert_called_once()
         action = middleware._client.post.call_args.args[1]["action"]
