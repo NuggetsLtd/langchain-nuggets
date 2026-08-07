@@ -69,6 +69,7 @@ tool_node = ToolNode(
 |-----------|--------|
 | **ALLOW** | Tool executes; cryptographic proof artifact emitted |
 | **DENY** | Tool blocked; structured error returned with `reason_code` |
+| **ESCALATE** | Human approval required; verified `PENDING_APPROVAL` returned, tool **not** executed, no proof artifact (see [Payments & approvals](#payments--approvals)) |
 | **ERROR** | Fail closed — tool not executed |
 | **Proof binding** | Proofs bind actor, controller, delegation, tool, parameters, result hash, constraints, and optional intent hash |
 
@@ -100,6 +101,35 @@ MiddlewareConfig(
 )
 ```
 
+### Payments & approvals
+
+For monetary tools, supply an **action-context resolver** to attach the payment `amount_minor` (minor units, integer) and `currency` (ISO-4217, uppercase) to the signed action. The resolver is the *only* source of money fields — they are never inferred from tool args — and the tool name must **exactly match** the delegation capability (e.g. `nuggets.payments.send`).
+
+```python
+MiddlewareConfig(
+    ...,
+    action_context_resolver=lambda tool, args: {
+        "amount_minor": 500,           # £5.00
+        "currency": "GBP",
+        "target": "did:web:merchant",  # optional; overrides the args-derived target
+    },
+)
+```
+
+`amount_minor` and `currency` are validated as a pair — supply both or neither. Invalid money fields (negative/non-integer amount, non-`^[A-Z]{3}$` currency, one without the other) fail **closed** with an `ERROR` `ToolMessage` before the tool runs.
+
+**ESCALATE (human approval).** When the authority requires approval it returns `ESCALATE`. The middleware verifies the signed decision — exactly as it does for `ALLOW` — then returns a `PENDING_APPROVAL` `ToolMessage`. This is **not** an error, and the wrapped tool never runs:
+
+```json
+{ "status": "PENDING_APPROVAL", "approval_id": 500, "reason_code": "APPROVAL_REQUIRED", "proof_id": "...", "signature": "..." }
+```
+
+Operational boundary:
+
+- **No payment handler runs** on `PENDING_APPROVAL` — nothing is executed or charged.
+- The **application owns polling/redeem** of the approval, out-of-band, using `approval_id`.
+- `approval_id` is a **server-issued handle, not part of the signed receipt** — treat it as an opaque identifier, not a cryptographically verified field. (The ESCALATE *decision* signature is verified.)
+
 ### With `create_agent`
 
 For the LangChain `create_agent` API, install the `agent` extra and use the `AgentMiddleware` adapter (same config, same enforcement):
@@ -128,6 +158,8 @@ The accounts portal generates an RS256 keypair at agent creation and lets you do
 - A JWK or JWKS dict
 
 The key is never transmitted; only the signed `agent_proof` JWS is sent.
+
+Keep the private JWKS in a secret store or mounted secret — never in source control, logs, or `Downloads`; treat any previously downloaded key as stale. For demos and smoke runs, use a **disposable, scoped delegation** and a freshly downloaded key, and **revoke both** afterwards.
 
 ### Test mode
 

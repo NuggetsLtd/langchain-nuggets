@@ -166,12 +166,28 @@ export NUGGETS_DELEGATION_ID="42"
 export NUGGETS_AGENT_PRIVATE_KEY="/secrets/agent-jwks.json"
 export NUGGETS_TOOL="your_tool_name"   # any capability you listed under Allowed Actions
 export NUGGETS_TARGET="your_target"    # required when Allowed Services is set; otherwise omit
+export NUGGETS_AMOUNT_MINOR="500"      # optional; minor units (500 = £5.00) — for payment capabilities
+export NUGGETS_CURRENCY="GBP"          # optional; ISO-4217, uppercase — pair with NUGGETS_AMOUNT_MINOR
 
 python scripts/smoke_test_authority.py
 ```
 
-Expected output ends with `OK` and a proof_id. Anything else points at
-one of the cases in the next section.
+Expected output ends with `OK` and a proof_id (or `PENDING_APPROVAL`
+with an `approval_id` when the decision is `ESCALATE`). The smoke handler
+is a no-op — it never executes a payment. Anything else points at one of
+the cases in the next section.
+
+`NUGGETS_AMOUNT_MINOR` / `NUGGETS_CURRENCY` are supplied together via an
+action-context resolver; they are the only source of the payment amount and
+currency (never inferred from tool args). A currency-scoped, amount-capped
+GBP delegation treats a call with **no** `amount_minor` / `currency` as out of
+currency scope and rejects it — set both when testing such a delegation.
+
+> **Disposable keys and delegations.** For smoke runs and demos, use a
+> short-lived, **scoped** delegation and a **freshly downloaded** key, and
+> **revoke both** once testing is done. Keep the private JWKS in a secret
+> store or mounted secret — never in source control, logs, or `Downloads`;
+> treat any previously downloaded key as stale.
 
 ### 2.5 Walk through the full scenario suite (optional)
 
@@ -190,6 +206,8 @@ top of that file. Useful for demos and pre-release smoke runs.
 | `TOOL_NOT_IN_SCOPE` | The tool name passed to the LLM isn't in the delegation's **Allowed Actions**. | Either add the tool name to the delegation in the portal, or rename the LangChain tool to match what was granted. |
 | `TARGET_NOT_IN_SCOPE` | The tool call's `target` argument isn't in **Allowed Services**, or the call didn't pass a `target` at all. | Add the target to the delegation, leave Allowed Services blank for "any", or include `target=` in the tool's arguments. |
 | `CAP_EXCEEDED_INVOCATIONS` | The delegation's **Max Calls** has been hit. | Increase the cap by editing the delegation, or create a new one. There is no auto-reset. |
+| `CAP_EXCEEDED_AMOUNT` | The call's `amount_minor` exceeds the delegation's amount cap. | Lower the amount, or raise the delegation's cap. Large amounts may return `ESCALATE` (human approval) rather than a hard deny — see the payments notes in the READMEs. |
+| Out-of-currency-scope deny | A currency-scoped, amount-capped delegation received a call with no `amount_minor` / `currency`. | Supply both via the action-context resolver (`NUGGETS_AMOUNT_MINOR` + `NUGGETS_CURRENCY` in the smoke test). |
 | `DELEGATION_EXPIRED` / `DELEGATION_REVOKED` | The delegation's **Access Expires** has passed, or someone clicked Revoke. | Issue a new delegation. Revoked delegations can't be reactivated. |
 | `STALE_TIMESTAMP` | System clock skew between SDK host and the authority backend is > 5 minutes. | Sync the SDK host's clock (NTP). |
 | `nonce has already been used` (401) | The SDK reused an `action.nonce` — should not happen with stock middleware. | File a bug with the captured request body. |
