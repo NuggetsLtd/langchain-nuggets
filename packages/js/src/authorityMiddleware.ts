@@ -96,20 +96,29 @@ export class NuggetsAuthorityMiddleware {
 
     // ALLOW: execute + emit ProofArtifact.
     const result = await handler(request);
-    const resultContent = extractResultContent(result);
-    const proof = buildProofArtifact({
-      authorityResponse: authResponse,
-      agentId: this.config.agentId,
-      controllerId: this.config.controllerId,
-      delegationId: this.config.delegationId,
-      tool: toolName,
-      parametersHash: evalRequest.action.parameters_hash,
-      resultHash: hashResult(resultContent),
-      latencyMs: performance.now() - start,
-      intentHash: evalRequest.action.intent_hash ?? null,
-      testMode: this.config.testMode
-    });
-    await this.emitProof(proof);
+
+    // The side effect has now happened. A proof-build/emit or onProof failure
+    // must NOT propagate — surfacing it as an error could cause the caller to
+    // retry an already-executed, non-idempotent action.
+    try {
+      const resultContent = extractResultContent(result);
+      const proof = buildProofArtifact({
+        authorityResponse: authResponse,
+        agentId: this.config.agentId,
+        controllerId: this.config.controllerId,
+        delegationId: this.config.delegationId,
+        tool: toolName,
+        parametersHash: evalRequest.action.parameters_hash,
+        resultHash: hashResult(resultContent),
+        latencyMs: performance.now() - start,
+        intentHash: evalRequest.action.intent_hash ?? null,
+        testMode: this.config.testMode
+      });
+      await this.emitProof(proof);
+    } catch {
+      // Executed; proof persistence/callback failed. Swallow so the completed
+      // execution is not reported as a failure (no logger in this package).
+    }
     return result;
   }
 

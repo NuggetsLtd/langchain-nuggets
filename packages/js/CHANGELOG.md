@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A post-execution proof/callback failure no longer masks a completed tool run.** Once the wrapped tool has executed, `buildProofArtifact`, `onProof`, and result-hashing failures are isolated and the tool's result is still returned — so a completed, possibly non-idempotent side effect can't be misreported as an error and retried.
+
 ## [1.1.1]
 
 Security hardening. Fixes NuggetsLtd/langchain-nuggets#54.

@@ -146,6 +146,37 @@ describe("ALLOW / DENY / ERROR routing", () => {
     expect(data.message).toContain("Authority evaluation failed");
   });
 
+  it("does not mask a completed tool execution when onProof throws", async () => {
+    // #4: the side effect already happened; a proof-callback failure must not
+    // surface as an error (which would invite a retry of a non-idempotent action).
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      onProof: () => { throw new Error("callback boom"); }
+    }));
+    withClient(mw, allowPost());
+    const h = handler();
+
+    const result = (await mw.wrapToolCall(request(), h)) as ToolMessage;
+
+    expect(h).toHaveBeenCalledOnce();
+    expect(result.content).toContain("success");
+  });
+
+  it("does not mask a completed execution when result serialization/proof-building throws", async () => {
+    // The isolation covers extractResultContent/hashResult/buildProofArtifact too,
+    // not just onProof. A tool result whose content access throws must still be
+    // returned (and no proof emitted).
+    const weird = { get content(): string { throw new Error("serialize boom"); } };
+    const mw = new NuggetsAuthorityMiddleware(makeConfig());
+    withClient(mw, allowPost());
+    const h = vi.fn(async () => weird);
+
+    const res = await mw.wrapToolCall(request(), h);
+
+    expect(h).toHaveBeenCalledOnce();
+    expect(res).toBe(weird);
+    expect(mw.proofs).toHaveLength(0);
+  });
+
   it("invokes the proof callback on ALLOW", async () => {
     const onProof = vi.fn();
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ onProof }));

@@ -885,6 +885,67 @@ class TestEscalateDecision:
         assert data["reason_code"] == "PROOF_VERIFICATION_FAILED"
 
 
+class TestExecutionIsolation:
+    """#4: once the tool has executed, a post-execution proof/callback failure
+    must NOT surface as an error — that would invite a retry of a completed,
+    possibly non-idempotent side effect."""
+
+    def test_proof_callback_failure_does_not_mask_execution(
+        self, config, allow_response, mock_request, mock_handler
+    ):
+        def boom(_proof):
+            raise RuntimeError("callback boom")
+
+        cfg = config.model_copy(update={"on_proof": boom})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        mock_handler.assert_called_once()
+        assert isinstance(result, ToolMessage)
+        assert "success" in result.content
+
+    async def test_async_proof_callback_failure_does_not_mask_execution(
+        self, config, allow_response, mock_request, mock_async_handler
+    ):
+        def boom(_proof):
+            raise RuntimeError("callback boom")
+
+        cfg = config.model_copy(update={"on_proof": boom})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock(return_value=allow_response)
+
+        result = await middleware.awrap_tool_call(mock_request, mock_async_handler)
+
+        mock_async_handler.assert_awaited_once()
+        assert isinstance(result, ToolMessage)
+        assert "success" in result.content
+
+    def test_proof_build_failure_does_not_mask_execution(
+        self, config, allow_response, mock_request, mock_handler, monkeypatch
+    ):
+        # The isolation also covers proof-artifact construction / result hashing,
+        # not just the callback — forcing build_proof_artifact to raise must still
+        # return the executed tool result (and emit no proof).
+        monkeypatch.setattr(
+            "langchain_nuggets.middleware.authority_middleware.build_proof_artifact",
+            MagicMock(side_effect=RuntimeError("build boom")),
+        )
+        middleware = NuggetsAuthorityMiddleware(config)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(mock_request, mock_handler)
+
+        mock_handler.assert_called_once()
+        assert isinstance(result, ToolMessage)
+        assert "success" in result.content
+        assert middleware.proofs == []
+
+
 class TestMiddlewareTls:
     def test_threads_tls_to_client(self, rsa_keypair):
         config = MiddlewareConfig(
