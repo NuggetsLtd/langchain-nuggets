@@ -127,7 +127,23 @@ describe("ALLOW / DENY / ERROR routing", () => {
     expect(h).not.toHaveBeenCalled();
     const data = JSON.parse(result.content as string);
     expect(data.status).toBe("ERROR");
-    expect(data.message).toContain("Network error");
+    // Exception text must NOT be echoed to the LLM/user-visible message.
+    expect(data.message).not.toContain("Network error");
+    expect(data.message).toContain("Authority evaluation failed");
+  });
+
+  it("does not leak the authority-eval exception text into the ERROR message", async () => {
+    const secret = "bearer-9d3f-acct-4200";
+    const mw = new NuggetsAuthorityMiddleware(makeConfig());
+    withClient(mw, vi.fn(async () => { throw new Error(secret); }));
+    const h = handler();
+
+    const result = (await mw.wrapToolCall(request(), h)) as ToolMessage;
+
+    const data = JSON.parse(result.content as string);
+    expect(data.status).toBe("ERROR");
+    expect(data.message).not.toContain(secret);
+    expect(data.message).toContain("Authority evaluation failed");
   });
 
   it("invokes the proof callback on ALLOW", async () => {
@@ -485,6 +501,38 @@ describe("action context resolver", () => {
     )) as ToolMessage;
     expect(h).not.toHaveBeenCalled();
     expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+
+  it("does not leak the resolver exception text into the ERROR message", async () => {
+    const secret = "account-9999-balance-4200";
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => { throw new Error(secret); }
+    }));
+    const h = handler();
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("ERROR");
+    expect(data.message).not.toContain(secret);
+    expect(data.message).toContain("Action context resolution failed");
+  });
+
+  it("does not leak a resolver-overwritten Error.name into the ERROR message", async () => {
+    const secret = "name-injected-balance-4200";
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => { throw Object.assign(new Error("boom"), { name: secret }); }
+    }));
+    const h = handler();
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("ERROR");
+    expect(data.message).not.toContain(secret);
+    expect(data.message).toContain("Action context resolution failed");
   });
 });
 

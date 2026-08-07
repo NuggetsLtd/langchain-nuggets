@@ -54,7 +54,7 @@ export class NuggetsAuthorityMiddleware {
     try {
       evalRequest = this.buildEvalRequest(toolName, toolArgs);
     } catch (exc) {
-      return this.errorMessage(toolCallId, toolName, `Action context resolution failed: ${exc}`);
+      return this.errorMessage(toolCallId, toolName, `Action context resolution failed (${errorDetail(exc)})`);
     }
     const start = performance.now();
 
@@ -76,7 +76,7 @@ export class NuggetsAuthorityMiddleware {
         );
         authResponse = coerceAuthorityResponse(rawResponse);
       } catch (exc) {
-        return this.errorMessage(toolCallId, toolName, `Authority evaluation failed: ${exc}`);
+        return this.errorMessage(toolCallId, toolName, `Authority evaluation failed (${errorDetail(exc)})`);
       }
     }
 
@@ -278,6 +278,18 @@ export class NuggetsAuthorityMiddleware {
     this.proofList.push(proof);
     await this.config.onProof?.(proof);
   }
+}
+
+/**
+ * A non-sensitive descriptor of a thrown value for user-facing ERROR messages.
+ * Returns the error's *constructor* name (or the primitive type) — never the
+ * message or the instance `.name`, both of which are writable and can carry
+ * resolver/tool-arg data that would otherwise reach the LLM/user. The
+ * constructor name reflects the (statically defined) class, so it is safe.
+ */
+function errorDetail(exc: unknown): string {
+  if (exc instanceof Error) return exc.constructor?.name || "Error";
+  return typeof exc;
 }
 
 function validateActionContextExtras(

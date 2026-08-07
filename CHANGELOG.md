@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.1.1]
+
+Security hardening. Fixes #54.
+
+### Security
+
+- **Fail-closed `ERROR` messages no longer echo raw exception text.** The action-context-resolver and authority-evaluation failure paths (both SDKs, sync + async) previously interpolated `str(exc)` / `${exc}` into the `ToolMessage` content, which is surfaced to the LLM/user — a user-supplied resolver or an authority error could leak tool-arg data (amounts, targets, identifiers). The user-facing message now carries only a generic phrase plus the exception's class name; full detail (with traceback in Python) goes to the server-side log.
+
+### Fixed
+
+- Python README "Test mode" section clarified: `action_context_resolver` validation runs before the `test_mode` short-circuit, so invalid money fields fail closed even in test mode.
+
 ## [1.1.0]
 
 Payment / approval half of the ACP action contract. Additive — expands the set of possible decisions, so a minor bump. JS and Python stay behaviourally symmetric.

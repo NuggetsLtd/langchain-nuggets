@@ -39,6 +39,16 @@ logger = logging.getLogger(__name__)
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 
 
+def _error_detail(exc: Exception) -> str:
+    """A non-sensitive descriptor of an exception for user-facing ERROR messages.
+
+    Returns the exception's class name — never ``str(exc)``, which can carry
+    resolver/tool-arg data and would otherwise be surfaced to the LLM/user via
+    the ToolMessage. Full detail (with traceback) goes to the server-side log.
+    """
+    return type(exc).__name__
+
+
 def _validate_action_context_extras(extras: Any) -> Optional[Dict[str, Any]]:
     """Validate an action_context_resolver's return value, failing closed.
 
@@ -350,13 +360,13 @@ class NuggetsAuthorityMiddleware:
         try:
             eval_request = self._build_eval_request(tool_name, tool_args)
         except Exception as exc:  # fail closed before any tool execution
-            logger.error("Action context resolution failed: %s", exc)
+            logger.error("Action context resolution failed: %s", exc, exc_info=True)
             return ToolMessage(
                 content=json.dumps(
                     {
                         "status": "ERROR",
                         "tool": tool_name,
-                        "message": f"Action context resolution failed: {exc}",
+                        "message": f"Action context resolution failed ({_error_detail(exc)})",
                     }
                 ),
                 tool_call_id=tool_call_id,
@@ -386,13 +396,13 @@ class NuggetsAuthorityMiddleware:
                 )
                 auth_response = AuthorityEvaluationResponse(**raw_response)
             except Exception as exc:
-                logger.error("Authority evaluation failed: %s", exc)
+                logger.error("Authority evaluation failed: %s", exc, exc_info=True)
                 return ToolMessage(
                     content=json.dumps(
                         {
                             "status": "ERROR",
                             "tool": tool_name,
-                            "message": f"Authority evaluation failed: {exc}",
+                            "message": f"Authority evaluation failed ({_error_detail(exc)})",
                         }
                     ),
                     tool_call_id=tool_call_id,
@@ -450,13 +460,13 @@ class NuggetsAuthorityMiddleware:
         try:
             eval_request = self._build_eval_request(tool_name, tool_args)
         except Exception as exc:  # fail closed before any tool execution
-            logger.error("Action context resolution failed: %s", exc)
+            logger.error("Action context resolution failed: %s", exc, exc_info=True)
             return ToolMessage(
                 content=json.dumps(
                     {
                         "status": "ERROR",
                         "tool": tool_name,
-                        "message": f"Action context resolution failed: {exc}",
+                        "message": f"Action context resolution failed ({_error_detail(exc)})",
                     }
                 ),
                 tool_call_id=tool_call_id,
@@ -486,13 +496,13 @@ class NuggetsAuthorityMiddleware:
                 )
                 auth_response = AuthorityEvaluationResponse(**raw_response)
             except Exception as exc:
-                logger.error("Authority evaluation failed: %s", exc)
+                logger.error("Authority evaluation failed: %s", exc, exc_info=True)
                 return ToolMessage(
                     content=json.dumps(
                         {
                             "status": "ERROR",
                             "tool": tool_name,
-                            "message": f"Authority evaluation failed: {exc}",
+                            "message": f"Authority evaluation failed ({_error_detail(exc)})",
                         }
                     ),
                     tool_call_id=tool_call_id,
