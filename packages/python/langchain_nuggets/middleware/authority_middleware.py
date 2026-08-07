@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -34,6 +35,37 @@ from langchain_nuggets.middleware.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+
+
+def _validate_action_context_extras(extras: Any) -> Optional[Dict[str, Any]]:
+    """Validate an action_context_resolver's return value, failing closed.
+
+    Rules mirror the JS SDK exactly: target (if present) is a non-empty,
+    non-whitespace string; amount_minor/currency are supplied together or not
+    at all; amount_minor is a non-negative int (bool rejected); currency is an
+    uppercase ISO-4217 code. Raises ValueError on any violation so the caller
+    can short-circuit to ERROR before the handler runs.
+    """
+    if extras is None:
+        return None
+    if not isinstance(extras, dict):
+        raise ValueError("action_context_resolver must return a dict or None")
+    target = extras.get("target")
+    if target is not None and (not isinstance(target, str) or not target.strip()):
+        raise ValueError("action_context_resolver target must be a non-empty string")
+    amount = extras.get("amount_minor")
+    currency = extras.get("currency")
+    if (amount is None) != (currency is None):
+        raise ValueError(
+            "action_context_resolver must supply amount_minor and currency together, or neither"
+        )
+    if amount is not None and (isinstance(amount, bool) or not isinstance(amount, int) or amount < 0):
+        raise ValueError("action_context_resolver amount_minor must be a non-negative integer")
+    if currency is not None and not (isinstance(currency, str) and _CURRENCY_RE.match(currency)):
+        raise ValueError("action_context_resolver currency must be an uppercase ISO-4217 code")
+    return extras
 
 
 def _extract_oidc_client_id(agent_did: str) -> str:
@@ -124,8 +156,17 @@ class NuggetsAuthorityMiddleware:
         if self._config.intent_resolver is not None:
             intent = self._config.intent_resolver(tool_name, tool_args)
 
-        # Extract target from args if present, otherwise default to tool name
-        target = tool_args.get("target", tool_name) if isinstance(tool_args, dict) else tool_name
+        # Resolve + validate opt-in payment/action-context extras (fail closed).
+        extras = None
+        if self._config.action_context_resolver is not None:
+            extras = _validate_action_context_extras(
+                self._config.action_context_resolver(tool_name, tool_args)
+            )
+
+        # Extract target from args if present, otherwise default to tool name.
+        # A resolver-supplied target overrides the args default.
+        default_target = tool_args.get("target", tool_name) if isinstance(tool_args, dict) else tool_name
+        target = extras.get("target") if extras and extras.get("target") else default_target
 
         parameters_hash = hash_parameters(tool_args)
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -142,6 +183,8 @@ class NuggetsAuthorityMiddleware:
             action=ActionContext(
                 tool=tool_name,
                 target=str(target),
+                amount_minor=extras.get("amount_minor") if extras else None,
+                currency=extras.get("currency") if extras else None,
                 parameters_hash=parameters_hash,
                 intent=intent,
                 intent_hash=intent_hash,
@@ -272,7 +315,20 @@ class NuggetsAuthorityMiddleware:
         tool_args = tool_call["args"]
         tool_call_id = tool_call["id"]
 
-        eval_request = self._build_eval_request(tool_name, tool_args)
+        try:
+            eval_request = self._build_eval_request(tool_name, tool_args)
+        except Exception as exc:  # fail closed before any tool execution
+            logger.error("Action context resolution failed: %s", exc)
+            return ToolMessage(
+                content=json.dumps(
+                    {
+                        "status": "ERROR",
+                        "tool": tool_name,
+                        "message": f"Action context resolution failed: {exc}",
+                    }
+                ),
+                tool_call_id=tool_call_id,
+            )
         start_time = time.monotonic()
 
         if self._config.test_mode:
@@ -354,7 +410,20 @@ class NuggetsAuthorityMiddleware:
         tool_args = tool_call["args"]
         tool_call_id = tool_call["id"]
 
-        eval_request = self._build_eval_request(tool_name, tool_args)
+        try:
+            eval_request = self._build_eval_request(tool_name, tool_args)
+        except Exception as exc:  # fail closed before any tool execution
+            logger.error("Action context resolution failed: %s", exc)
+            return ToolMessage(
+                content=json.dumps(
+                    {
+                        "status": "ERROR",
+                        "tool": tool_name,
+                        "message": f"Action context resolution failed: {exc}",
+                    }
+                ),
+                tool_call_id=tool_call_id,
+            )
         start_time = time.monotonic()
 
         if self._config.test_mode:

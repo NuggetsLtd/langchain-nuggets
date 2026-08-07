@@ -508,6 +508,149 @@ class TestAsyncWrapToolCall:
         assert "nonce" in payload["action"]
 
 
+def _payments_request(args=None):
+    r = MagicMock()
+    r.tool_call = {"name": "nuggets.payments.send", "args": args or {}, "id": "c1"}
+    return r
+
+
+class TestActionContextResolver:
+    def _cfg(self, config, resolver):
+        return config.model_copy(update={"action_context_resolver": resolver})
+
+    def test_merges_amount_currency_target(
+        self, config, allow_response, mock_handler
+    ):
+        cfg = self._cfg(config, lambda n, a: {"amount_minor": 100, "currency": "GBP", "target": "did:web:merchant"})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(_payments_request({"note": "x"}), mock_handler)
+
+        action = middleware._client.post.call_args.args[1]["action"]
+        assert action["amount_minor"] == 100
+        assert action["currency"] == "GBP"
+        assert action["target"] == "did:web:merchant"
+
+    def test_keeps_args_target_when_resolver_omits_target(
+        self, config, allow_response, mock_handler
+    ):
+        cfg = self._cfg(config, lambda n, a: {"amount_minor": 100, "currency": "GBP"})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        middleware.wrap_tool_call(_payments_request({"target": "stripe"}), mock_handler)
+
+        assert middleware._client.post.call_args.args[1]["action"]["target"] == "stripe"
+
+    def test_invalid_amount_fails_closed(self, config, allow_response, mock_handler):
+        cfg = self._cfg(config, lambda n, a: {"amount_minor": -1, "currency": "GBP"})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(_payments_request(), mock_handler)
+
+        mock_handler.assert_not_called()
+        assert json.loads(result.content)["status"] == "ERROR"
+
+    def test_bool_amount_fails_closed(self, config, allow_response, mock_handler):
+        # bool is an int subclass in Python; it must not sneak through as an amount.
+        cfg = self._cfg(config, lambda n, a: {"amount_minor": True, "currency": "GBP"})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(_payments_request(), mock_handler)
+
+        mock_handler.assert_not_called()
+        assert json.loads(result.content)["status"] == "ERROR"
+
+    def test_invalid_currency_fails_closed(self, config, allow_response, mock_handler):
+        cfg = self._cfg(config, lambda n, a: {"amount_minor": 100, "currency": "gbp"})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(_payments_request(), mock_handler)
+
+        mock_handler.assert_not_called()
+        assert json.loads(result.content)["status"] == "ERROR"
+
+    @pytest.mark.parametrize("extras", [{"amount_minor": 100}, {"currency": "GBP"}])
+    def test_amount_currency_must_be_paired(
+        self, config, allow_response, mock_handler, extras
+    ):
+        cfg = self._cfg(config, lambda n, a: extras)
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(_payments_request(), mock_handler)
+
+        mock_handler.assert_not_called()
+        assert json.loads(result.content)["status"] == "ERROR"
+
+    def test_whitespace_target_fails_closed(self, config, allow_response, mock_handler):
+        cfg = self._cfg(config, lambda n, a: {"target": "   "})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(_payments_request(), mock_handler)
+
+        mock_handler.assert_not_called()
+        assert json.loads(result.content)["status"] == "ERROR"
+
+    def test_absent_amount_currency_allowed(self, config, allow_response, mock_handler):
+        cfg = self._cfg(config, lambda n, a: {"target": "did:web:merchant"})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.post.return_value = allow_response
+
+        result = middleware.wrap_tool_call(_payments_request(), mock_handler)
+
+        mock_handler.assert_called_once()
+        action = middleware._client.post.call_args.args[1]["action"]
+        assert action["amount_minor"] is None
+        assert action["currency"] is None
+
+    def test_resolver_raises_fails_closed_even_in_test_mode(self, rsa_keypair, mock_handler):
+        def boom(n, a):
+            raise RuntimeError("resolver boom")
+
+        cfg = MiddlewareConfig(
+            api_url="https://api.nuggets.test",
+            agent_id="agent-123",
+            controller_id="org-456",
+            delegation_id="del-789",
+            test_mode=True,
+            action_context_resolver=boom,
+        )
+        middleware = NuggetsAuthorityMiddleware(cfg)
+
+        result = middleware.wrap_tool_call(_payments_request(), mock_handler)
+
+        mock_handler.assert_not_called()
+        assert json.loads(result.content)["status"] == "ERROR"
+
+    async def test_async_merges_amount_currency(
+        self, config, allow_response, mock_async_handler
+    ):
+        cfg = self._cfg(config, lambda n, a: {"amount_minor": 500, "currency": "GBP"})
+        middleware = NuggetsAuthorityMiddleware(cfg)
+        middleware._client = MagicMock()
+        middleware._client.apost = AsyncMock(return_value=allow_response)
+
+        await middleware.awrap_tool_call(_payments_request({"note": "x"}), mock_async_handler)
+
+        action = middleware._client.apost.call_args.args[1]["action"]
+        assert action["amount_minor"] == 500
+        assert action["currency"] == "GBP"
+
+
 class TestMiddlewareTls:
     def test_threads_tls_to_client(self, rsa_keypair):
         config = MiddlewareConfig(
