@@ -103,3 +103,15 @@ class TestNuggetsAuthTls:
                 verify_ssl=True,
             )
             assert auth._verifier._verify == "/path/ca.pem"
+
+
+class TestNuggetsAuthAudience:
+    def test_forwards_audience(self):
+        with patch.dict(os.environ, {}, clear=True):
+            auth = NuggetsAuth(issuer_url="https://oidc.test", audience="resource-1")
+            assert auth._verifier._audience == "resource-1"
+
+    def test_forwards_allow_any_audience_opt_out(self):
+        with patch.dict(os.environ, {}, clear=True):
+            auth = NuggetsAuth(issuer_url="https://oidc.test", allow_any_audience=True)
+            assert auth._verifier._allow_any_audience is True

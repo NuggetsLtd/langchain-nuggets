@@ -43,6 +43,7 @@ class NuggetsAuth:
         audience: Optional[str] = None,
         ca_cert: Optional[str] = None,
         verify_ssl: bool = True,
+        allow_any_audience: bool = False,
     ) -> None:
         resolved_issuer = issuer_url or os.environ.get("NUGGETS_OIDC_ISSUER_URL", "")
         if not resolved_issuer:
@@ -56,6 +57,7 @@ class NuggetsAuth:
             audience=audience,
             ca_cert=ca_cert,
             verify_ssl=verify_ssl,
+            allow_any_audience=allow_any_audience,
         )
 
         # Create and configure the LangGraph Auth object
