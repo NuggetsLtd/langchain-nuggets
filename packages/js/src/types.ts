@@ -19,6 +19,17 @@ export type ToolArgs = Record<string, unknown>;
 
 export type IntentResolver = (toolName: string, toolArgs: ToolArgs) => string | null | undefined;
 
+export type ActionContextExtras = {
+  target?: string;
+  amount_minor?: number;
+  currency?: string;
+};
+
+export type ActionContextResolver = (
+  toolName: string,
+  toolArgs: ToolArgs
+) => ActionContextExtras | undefined;
+
 export type ProofCallback = (proof: ProofArtifact) => void | Promise<void>;
 
 export type PrivateKeyInput = string | JWK | { keys: JWK[] };
@@ -34,6 +45,7 @@ export interface MiddlewareConfigInput {
   authorityAudience?: string;
   onProof?: ProofCallback;
   intentResolver?: IntentResolver;
+  actionContextResolver?: ActionContextResolver;
   testMode?: boolean;
   agentPrivateKey?: PrivateKeyInput;
   verifyProofs?: boolean;
@@ -50,6 +62,7 @@ export class MiddlewareConfig {
   authorityAudience?: string;
   onProof?: ProofCallback;
   intentResolver?: IntentResolver;
+  actionContextResolver?: ActionContextResolver;
   testMode: boolean;
   agentPrivateKey?: PrivateKeyInput;
   verifyProofs: boolean;
@@ -65,6 +78,7 @@ export class MiddlewareConfig {
     this.authorityAudience = input.authorityAudience;
     this.onProof = input.onProof;
     this.intentResolver = input.intentResolver;
+    this.actionContextResolver = input.actionContextResolver;
     this.testMode = input.testMode ?? false;
     this.agentPrivateKey = input.agentPrivateKey;
     this.verifyProofs = input.verifyProofs ?? true;
@@ -89,6 +103,8 @@ export class MiddlewareConfig {
 export interface ActionContext {
   tool: string;
   target?: string;
+  amount_minor?: number;
+  currency?: string;
   parameters_hash: string;
   intent?: string | null;
   intent_hash?: string | null;
@@ -104,13 +120,14 @@ export interface AuthorityEvaluationRequest {
   agent_proof?: string;
 }
 
-export type AuthorityDecision = "ALLOW" | "DENY";
+export type AuthorityDecision = "ALLOW" | "DENY" | "ESCALATE";
 
 export interface AuthorityEvaluationResponse {
   decision: AuthorityDecision;
   proof_id: string;
   signature: string;
   reason_code?: string | null;
+  approval_id?: string | null;
   constraints_evaluated?: string[];
 }
 
