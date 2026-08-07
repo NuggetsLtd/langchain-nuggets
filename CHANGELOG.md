@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
-## [1.2.0]
+## [1.1.2]
 
-Security-hardening release from an adversarial review.
+Security-hardening patch from an adversarial review. No new API and no intended breaking change; two behaviors are *tightened* (see Migration).
 
 ### Migration
 

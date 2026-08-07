@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
-## [1.2.0]
+## [1.1.2]
 
-Released in lockstep with the Python package's 1.2.0 security-hardening release (the breaking-default audience change is Python/LangGraph-only; this package's change is a fix).
+Released in lockstep with the Python package's 1.1.2 security-hardening patch.
 
 ### Fixed
 
