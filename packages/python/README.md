@@ -183,7 +183,19 @@ Pre-built authorization helpers:
 
 ```python
 from langchain_nuggets.langgraph import require_scopes, ownership_filter
+
+# Owner-scope every operation. ownership_filter stamps value["metadata"]["owner"]
+# on writes and returns an {"owner": identity} filter for reads/searches; it
+# fails closed (403) when there is no authenticated identity.
+owned = ownership_filter()
+for op in (
+    auth.on.threads.create, auth.on.threads.read, auth.on.threads.update,
+    auth.on.threads.delete, auth.on.threads.search,
+):
+    op(owned)
 ```
+
+Register it for **every** operation you want scoped — a create handler alone stamps the owner but leaves reads/updates/deletes unfiltered.
 
 ## Self-hosted / private CA
 

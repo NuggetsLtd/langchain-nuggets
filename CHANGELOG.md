@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Security
+
+- **`ownership_filter()` now implements LangGraph's ownership contract.** It previously wrote a top-level `value["owner"]` and returned the entire payload as the filter, and mis-routed dict-shaped read/search values — which could create unowned resources, produce malformed filters, and (without per-op handlers) expose data across tenants. It now stamps `value["metadata"]["owner"]` on writes, returns the exact-match `{"owner": identity}` filter for every operation, and **fails closed (403)** when there is no authenticated identity. README shows registering it across create/read/search/update/delete.
+
 ### Fixed
 
 - **A post-execution proof/callback failure no longer masks a completed tool run** (both SDKs, sync + async). Once the wrapped tool has executed, proof-artifact construction, `on_proof`/`onProof` callback, and result-hashing failures are isolated (logged in Python; swallowed in JS) and the tool's result is still returned — so a completed, possibly non-idempotent side effect can't be misreported as an error and retried.
