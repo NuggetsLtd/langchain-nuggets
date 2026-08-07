@@ -143,6 +143,38 @@ class TestAuthorityEvaluationResponse:
             )
 
 
+def test_action_context_accepts_amount_and_currency():
+    from langchain_nuggets.middleware.types import ActionContext
+    ac = ActionContext(tool="nuggets.payments.send", target="did:web:m",
+                        amount_minor=100, currency="GBP",
+                        parameters_hash="h", timestamp="t")
+    assert ac.amount_minor == 100 and ac.currency == "GBP"
+
+
+def test_escalate_is_a_valid_decision():
+    from langchain_nuggets.middleware.types import AuthorityEvaluationResponse
+    r = AuthorityEvaluationResponse(decision="ESCALATE", proof_id="p",
+                                    signature="s", approval_id="appr-1")
+    assert r.decision == "ESCALATE" and r.approval_id == "appr-1"
+
+
+def test_approval_id_accepts_numeric_verbatim():
+    # ACP issues approval_id as a number on the live response; it must survive
+    # as-is (not coerced to str/None) and is NOT part of the signed receipt.
+    from langchain_nuggets.middleware.types import AuthorityEvaluationResponse
+    r = AuthorityEvaluationResponse(decision="ESCALATE", proof_id="p",
+                                    signature="s", approval_id=500)
+    assert r.approval_id == 500
+
+
+def test_config_accepts_action_context_resolver():
+    from langchain_nuggets.middleware.types import MiddlewareConfig
+    cfg = MiddlewareConfig(api_url="https://x", agent_id="a", controller_id="c",
+                           delegation_id="d", test_mode=True,
+                           action_context_resolver=lambda name, args: {"amount_minor": 1})
+    assert cfg.action_context_resolver is not None
+
+
 class TestProofArtifact:
     def test_all_fields(self):
         proof = ProofArtifact(
