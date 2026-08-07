@@ -110,3 +110,8 @@ class TestNuggetsAuthAudience:
         with patch.dict(os.environ, {}, clear=True):
             auth = NuggetsAuth(issuer_url="https://oidc.test", audience="resource-1")
             assert auth._verifier._audience == "resource-1"
+
+    def test_forwards_allow_any_audience_opt_out(self):
+        with patch.dict(os.environ, {}, clear=True):
+            auth = NuggetsAuth(issuer_url="https://oidc.test", allow_any_audience=True)
+            assert auth._verifier._allow_any_audience is True

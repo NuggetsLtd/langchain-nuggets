@@ -1,6 +1,7 @@
 """OIDC token verification for the Nuggets auth provider."""
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Dict, List, Optional, Union
 
@@ -8,10 +9,18 @@ import httpx
 import jwt
 from jwt import PyJWK
 
+logger = logging.getLogger(__name__)
+
 # The Nuggets issuer signs access tokens with RS256. Never derive the accepted
 # algorithm from the (attacker-controlled) token header — pin it here so a token
 # presenting a different `alg` can't steer verification (RS/HS confusion, etc.).
 _ALLOWED_ALGORITHMS = ["RS256"]
+
+# RFC 9068 access-token type. Enforced to block ID-token/access-token confusion.
+_EXPECTED_TYP = "at+jwt"
+
+# Clock-skew tolerance (seconds) on exp/iat — matches the issuer's clockTolerance.
+_CLOCK_SKEW_LEEWAY = 15
 
 
 class NuggetsAuthError(Exception):
@@ -40,17 +49,27 @@ class NuggetsTokenVerifier:
         jwks_cache_ttl: int = 3600,
         ca_cert: Optional[str] = None,
         verify_ssl: bool = True,
+        allow_any_audience: bool = False,
     ) -> None:
         self._issuer_url = issuer_url.rstrip("/")
-        # Normalize a blank/whitespace audience to None so enforce-when-set is
-        # predictable (a blank string is "not configured", not an audience).
-        # When an audience IS set it is enforced; when unset, aud is not checked.
-        # NOTE: making an audience mandatory (fail closed when unset) is deferred
-        # until the issuer defines a LangGraph resource-server `aud` contract —
-        # see issue #63. Introducing that 401 default now would be a breaking
-        # change for existing consumers, so it belongs in a later major release.
+        # Normalize a blank/whitespace audience to None (a blank string is "not
+        # configured", not an audience).
         normalized_audience = audience.strip() if isinstance(audience, str) else audience
         self._audience = normalized_audience or None
+        # RFC 9068: a resource server must reject JWT access tokens whose `aud`
+        # doesn't identify it. Verification fails closed when no `audience` is
+        # configured. `allow_any_audience` is a deliberate, documented-insecure
+        # escape hatch that bypasses ONLY the `aud` match — signature, `iss`,
+        # `exp`, `typ`, and the RS256 pin all still apply.
+        self._allow_any_audience = allow_any_audience
+        if self._allow_any_audience:
+            # Warn whenever the opt-out is on — it disables the `aud` check
+            # regardless of whether an `audience` is also configured.
+            logger.warning(
+                "NuggetsTokenVerifier: allow_any_audience=True — JWT audience (aud) "
+                "is NOT enforced. This is insecure and intended only for migration; "
+                "set an audience and remove this flag for production."
+            )
         self._jwks_cache_ttl = jwks_cache_ttl
 
         # TLS configuration for self-hosted deployments
@@ -84,10 +103,12 @@ class NuggetsTokenVerifier:
             self._http_client = None
 
     async def verify_token(self, token: str) -> Dict[str, Any]:
-        """Verify an OIDC token and return its claims.
+        """Verify an OIDC **JWT** access token and return its claims.
 
-        Tries JWKS-based JWT verification first. If the token is not a valid
-        JWT (e.g., opaque access token), falls back to the userinfo endpoint.
+        JWT-only: a non-JWT (opaque) token is rejected, never sent to an
+        unaudienced userinfo fallback that could bypass the audience check.
+        Authenticated introspection for opaque tokens is a documented follow-up,
+        not implemented here.
 
         Returns:
             Dict with at least a ``sub`` key.
@@ -95,36 +116,45 @@ class NuggetsTokenVerifier:
         Raises:
             NuggetsAuthError: If verification fails.
         """
-        try:
-            return await self._verify_jwt(token)
-        except (jwt.exceptions.DecodeError, jwt.exceptions.InvalidTokenError):
-            # Token is not a JWT or has invalid structure — try userinfo
-            pass
-
-        return await self._fetch_userinfo(token)
+        return await self._verify_jwt(token)
 
     async def _verify_jwt(self, token: str) -> Dict[str, Any]:
         """Verify a JWT using the OIDC provider's JWKS."""
-        # Get the kid from the JWT header
+        # Fail closed if we can't enforce audience (RFC 9068), unless opted out.
+        if self._audience is None and not self._allow_any_audience:
+            raise NuggetsAuthError(
+                "Refusing to verify a JWT without a configured audience. Pass "
+                "audience=<your resource URI> (RFC 9068), or set "
+                "allow_any_audience=True to explicitly disable this check (insecure).",
+                401,
+            )
+
         try:
             unverified_header = jwt.get_unverified_header(token)
         except jwt.exceptions.DecodeError:
-            raise
+            raise NuggetsAuthError(
+                "Token is not a verifiable JWT; opaque tokens are not accepted (JWT-only).",
+                401,
+            )
 
         kid = unverified_header.get("kid")
 
         # Fetch and find the matching key
         signing_key = await self._get_signing_key(kid)
 
+        # `allow_any_audience` disables the aud match whenever it's set — even if
+        # an audience is configured — bypassing ONLY aud (all else still verified).
+        enforce_aud = self._audience is not None and not self._allow_any_audience
         try:
             claims: Dict[str, Any] = jwt.decode(
                 token,
                 signing_key.key,
                 # Pinned allowlist — never the header's `alg`.
                 algorithms=_ALLOWED_ALGORITHMS,
-                audience=self._audience if self._audience else None,
+                audience=self._audience if enforce_aud else None,
                 issuer=self._issuer_url,
-                options={"verify_aud": self._audience is not None},
+                leeway=_CLOCK_SKEW_LEEWAY,
+                options={"verify_aud": enforce_aud},
             )
         except jwt.ExpiredSignatureError:
             raise NuggetsAuthError("Token has expired", 401)
@@ -134,6 +164,15 @@ class NuggetsTokenVerifier:
             raise NuggetsAuthError("Invalid token audience", 401)
         except jwt.InvalidTokenError as exc:
             raise NuggetsAuthError(f"Invalid token: {exc}", 401)
+
+        # Enforce the RFC 9068 access-token type. The protected header is signed,
+        # so a successful decode means this typ is integrity-protected.
+        if unverified_header.get("typ") != _EXPECTED_TYP:
+            raise NuggetsAuthError(
+                f"Unexpected token typ {unverified_header.get('typ')!r}; "
+                f"expected {_EXPECTED_TYP!r} (RFC 9068 access token).",
+                401,
+            )
 
         if "sub" not in claims:
             raise NuggetsAuthError("Token missing required 'sub' claim", 401)
@@ -180,33 +219,6 @@ class NuggetsTokenVerifier:
         self._jwks_keys = data.get("keys", [])
         self._jwks_fetched_at = now
         return self._jwks_keys
-
-    async def _fetch_userinfo(self, token: str) -> Dict[str, Any]:
-        """Fetch user information from the OIDC userinfo endpoint."""
-        discovery = await self._discover_endpoints()
-        userinfo_endpoint = discovery.get("userinfo_endpoint")
-        if not userinfo_endpoint:
-            raise NuggetsAuthError("OIDC provider does not expose a userinfo endpoint", 401)
-
-        client = self._get_http_client()
-        response = await client.get(
-            userinfo_endpoint,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-
-        if response.status_code == 401:
-            raise NuggetsAuthError("Invalid or expired token", 401)
-        if response.status_code >= 400:
-            raise NuggetsAuthError(
-                f"Userinfo request failed with status {response.status_code}",
-                response.status_code,
-            )
-
-        data = response.json()
-        if "sub" not in data:
-            raise NuggetsAuthError("Userinfo response missing required 'sub' field", 401)
-
-        return data
 
     async def _discover_endpoints(self) -> Dict[str, Any]:
         """Fetch and cache the OIDC discovery document."""

@@ -170,13 +170,25 @@ Keep the private JWKS in a secret store or mounted secret — never in source co
 ```python
 from langchain_nuggets.langgraph import NuggetsAuth
 
-nuggets = NuggetsAuth(issuer_url="https://auth.nuggets.life")
+nuggets = NuggetsAuth(
+    issuer_url="https://auth.nuggets.life",
+    audience="https://accounts.nuggets.life/agent",  # this env's agent resource
+)
 auth = nuggets.auth  # pass to langgraph.json
 ```
 
-JWTs are verified with a fixed `RS256` allowlist (never the token header's `alg`), and JWKS keys are filtered by `kty`/`use`/`alg`. If you pass `audience=`, it is enforced per RFC 9068.
+**An `audience` is required.** JWT verification **fails closed** when no `audience` is configured (RFC 9068), so set it to your environment's Nuggets agent resource URI:
 
-> **Audience enforcement is not yet mandatory.** Making a configured `audience` **required** (failing closed when unset) is deferred until the Nuggets issuer defines a LangGraph resource-server `aud` — there is no concrete `audience=` value to set today (tracked in [#63](https://github.com/NuggetsLtd/langchain-nuggets/issues/63)). When it lands, set `audience=` to your deployment's resource URI; do **not** use the authority API resource (`…/api/authority`), which is a different resource.
+| env | `audience` |
+|---|---|
+| dev | `https://accounts-dev.internal-nuggets.life/agent` |
+| integration | `https://accounts-integration.internal-nuggets.life/agent` |
+| staging | `https://accounts-staging.internal-nuggets.life/agent` |
+| production | `https://accounts.nuggets.life/agent` |
+
+Tokens are obtained via `client_credentials` + `resource=<audience>` + `scope=agent.invoke`. The verifier enforces: RS256 signature against the issuer JWKS (algorithm pinned — never the header's `alg`), exact `aud` match, `iss`, `exp` (15s skew tolerance), and `typ == at+jwt`. Scope enforcement (`agent.invoke`) is the application's job via `require_scopes`. Opaque (non-JWT) tokens are rejected — this path is JWT-only.
+
+For a deliberate, **insecure** migration escape hatch you may pass `allow_any_audience=True`, which skips **only** the `aud` match (signature/`iss`/`exp`/`typ`/RS256 still apply). It is not a production setting and logs a warning.
 
 Pre-built authorization helpers:
 
