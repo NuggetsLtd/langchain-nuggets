@@ -15,6 +15,7 @@ import {
 } from "./proofVerification.js";
 import type {
   ActionContext,
+  ActionContextExtras,
   AuthorityEvaluationRequest,
   AuthorityEvaluationResponse,
   MiddlewareConfig,
@@ -49,7 +50,12 @@ export class NuggetsAuthorityMiddleware {
     const toolName = toolCall.name;
     const toolArgs = toolCall.args;
     const toolCallId = toolCall.id;
-    const evalRequest = this.buildEvalRequest(toolName, toolArgs);
+    let evalRequest: AuthorityEvaluationRequest;
+    try {
+      evalRequest = this.buildEvalRequest(toolName, toolArgs);
+    } catch (exc) {
+      return this.errorMessage(toolCallId, toolName, `Action context resolution failed: ${exc}`);
+    }
     const start = performance.now();
 
     let authResponse: AuthorityEvaluationResponse;
@@ -110,19 +116,22 @@ export class NuggetsAuthorityMiddleware {
 
   buildEvalRequest(toolName: string, toolArgs: ToolArgs): AuthorityEvaluationRequest {
     const intent = this.config.intentResolver?.(toolName, toolArgs) ?? null;
-    const target = typeof toolArgs.target === "undefined" ? toolName : String(toolArgs.target);
+    const extras = validateActionContextExtras(this.config.actionContextResolver?.(toolName, toolArgs));
+    const defaultTarget = typeof toolArgs.target === "undefined" ? toolName : String(toolArgs.target);
     const parametersHash = hashParameters(toolArgs);
     const timestamp = new Date().toISOString();
     const intentHash = intent === null ? null : hashIntent(intent, parametersHash, timestamp);
     const action: ActionContext = {
       tool: toolName,
-      target,
+      target: extras?.target ?? defaultTarget,
       parameters_hash: parametersHash,
       intent,
       intent_hash: intentHash,
       timestamp,
       nonce: randomUUID()
     };
+    if (typeof extras?.amount_minor === "number") action.amount_minor = extras.amount_minor;
+    if (typeof extras?.currency === "string") action.currency = extras.currency;
     return {
       agent_id: this.config.agentId,
       controller_id: this.config.controllerId,
@@ -245,6 +254,30 @@ export class NuggetsAuthorityMiddleware {
     this.proofList.push(proof);
     await this.config.onProof?.(proof);
   }
+}
+
+function validateActionContextExtras(
+  extras: ActionContextExtras | undefined
+): ActionContextExtras | undefined {
+  if (extras === undefined) return undefined;
+  if (typeof extras !== "object" || extras === null) {
+    throw new Error("actionContextResolver must return an object or undefined");
+  }
+  if (extras.target !== undefined && (typeof extras.target !== "string" || extras.target.length === 0)) {
+    throw new Error("actionContextResolver target must be a non-empty string");
+  }
+  const hasAmount = extras.amount_minor !== undefined;
+  const hasCurrency = extras.currency !== undefined;
+  if (hasAmount !== hasCurrency) {
+    throw new Error("actionContextResolver must supply amount_minor and currency together, or neither");
+  }
+  if (hasAmount && (!Number.isSafeInteger(extras.amount_minor) || (extras.amount_minor as number) < 0)) {
+    throw new Error("actionContextResolver amount_minor must be a non-negative safe integer");
+  }
+  if (hasCurrency && !/^[A-Z]{3}$/.test(extras.currency as string)) {
+    throw new Error("actionContextResolver currency must be an uppercase ISO-4217 code");
+  }
+  return extras;
 }
 
 function coerceAuthorityResponse(value: unknown): AuthorityEvaluationResponse {

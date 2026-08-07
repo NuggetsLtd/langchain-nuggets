@@ -380,6 +380,101 @@ describe("constraints_evaluated", () => {
   });
 });
 
+describe("action context resolver", () => {
+  it("merges validated amount_minor/currency/target into the signed action", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ amount_minor: 100, currency: "GBP", target: "did:web:merchant" })
+    }));
+    const post = allowPost();
+    withClient(mw, post);
+    await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: { note: "x" }, id: "c1" } },
+      handler()
+    );
+    const action = post.mock.calls[0][1].action;
+    expect(action.amount_minor).toBe(100);
+    expect(action.currency).toBe("GBP");
+    expect(action.target).toBe("did:web:merchant");
+  });
+
+  it("keeps the args.target default when the resolver omits target", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ amount_minor: 100, currency: "GBP" })
+    }));
+    const post = allowPost();
+    withClient(mw, post);
+    await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: { target: "stripe" }, id: "c1" } },
+      handler()
+    );
+    expect(post.mock.calls[0][1].action.target).toBe("stripe");
+  });
+
+  it("fails closed (ERROR, handler not called) on invalid amount_minor", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ amount_minor: -1, currency: "GBP" })
+    }));
+    const h = handler();
+    withClient(mw, allowPost());
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+
+  it("fails closed on invalid currency", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ amount_minor: 100, currency: "gbp" })
+    }));
+    const h = handler();
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+
+  it("fails closed when amount is supplied without currency (and vice-versa)", async () => {
+    for (const extras of [{ amount_minor: 100 }, { currency: "GBP" }]) {
+      const mw = new NuggetsAuthorityMiddleware(makeConfig({ actionContextResolver: () => extras }));
+      const h = handler();
+      const res = (await mw.wrapToolCall(
+        { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+      )) as ToolMessage;
+      expect(h).not.toHaveBeenCalled();
+      expect(JSON.parse(res.content as string).status).toBe("ERROR");
+    }
+  });
+
+  it("allows both amount and currency to be absent (non-monetary tool)", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ target: "did:web:merchant" })
+    }));
+    const post = allowPost();
+    withClient(mw, post);
+    await mw.wrapToolCall(
+      { tool_call: { name: "lookup", args: {}, id: "c1" } }, handler()
+    );
+    const action = post.mock.calls[0][1].action;
+    expect(action.amount_minor).toBeUndefined();
+    expect(action.currency).toBeUndefined();
+  });
+
+  it("fails closed when the resolver throws — before the handler and even in testMode", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      testMode: true,
+      actionContextResolver: () => { throw new Error("resolver boom"); }
+    }));
+    const h = handler();
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "nuggets.payments.send", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+});
+
 describe("awrapToolCall", () => {
   it("delegates to wrapToolCall (ALLOW path)", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());
