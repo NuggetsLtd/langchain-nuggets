@@ -475,6 +475,101 @@ describe("action context resolver", () => {
   });
 });
 
+describe("ESCALATE decision", () => {
+  const escalateResponse = () => ({
+    decision: "ESCALATE" as const,
+    proof_id: "proof-esc",
+    signature: "sig-esc",
+    reason_code: "APPROVAL_REQUIRED",
+    approval_id: "appr-123",
+    constraints_evaluated: ["approval_threshold"]
+  });
+
+  it("does not call the handler and returns PENDING_APPROVAL (not ERROR/DENIED)", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig()); // verifyProofs: false
+    withClient(mw, vi.fn(async () => escalateResponse()));
+    const h = handler();
+    const res = (await mw.wrapToolCall(request(), h)) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("PENDING_APPROVAL");
+    expect(data.approval_id).toBe("appr-123");
+    expect(data.reason_code).toBe("APPROVAL_REQUIRED");
+  });
+
+  it("emits no proof artifact on ESCALATE", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig());
+    withClient(mw, vi.fn(async () => escalateResponse()));
+    await mw.wrapToolCall(request(), handler());
+    expect(mw.proofs).toHaveLength(0);
+  });
+
+  it("rejects an ESCALATE response with no signature", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig());
+    withClient(mw, vi.fn(async () => ({ decision: "ESCALATE", proof_id: "p", approval_id: "a" })));
+    const res = (await mw.wrapToolCall(request(), handler())) as ToolMessage;
+    // coerce throws → fail-closed ERROR
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+
+  it("fails closed (PROOF_VERIFICATION_FAILED) on ESCALATE with an unverifiable signature", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("no network"); }));
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({ verifyProofs: true }));
+    withClient(mw, vi.fn(async () => escalateResponse()));
+    const h = handler();
+    const res = (await mw.wrapToolCall(request(), h)) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("DENIED");
+    expect(data.reason_code).toBe("PROOF_VERIFICATION_FAILED");
+  });
+
+  it("verifies the signature then returns PENDING_APPROVAL with the verified receipt", async () => {
+    const portal = await generateKeyPair("RS256", { extractable: true });
+    const portalJwk: JWK = { ...(await exportJWK(portal.publicKey)), kid: "portal-k1", alg: "RS256" };
+    const issuer = "did:web:auth.nuggets.test:portalC1";
+    const proofJws = await new SignJWT({
+      proof_id: "proof-real",
+      agent_id: "agent-123",
+      controller_id: "org-456",
+      constraints_evaluated: ["tool_allowed"],
+      decision: "ESCALATE",
+      iss: issuer
+    })
+      .setProtectedHeader({ alg: "RS256", kid: "portal-k1" })
+      .setIssuedAt()
+      .sign(portal.privateKey);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("authority-configuration")) {
+          return new Response(
+            JSON.stringify({ issuer, jwks_uri: "https://api.nuggets.test/.well-known/jwks.json" }),
+            { status: 200 }
+          );
+        }
+        return new Response(JSON.stringify({ keys: [portalJwk] }), { status: 200 });
+      })
+    );
+
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({ verifyProofs: true }));
+    withClient(mw, vi.fn(async () => ({
+      decision: "ESCALATE", proof_id: "proof-real", signature: proofJws,
+      approval_id: "appr-1", reason_code: "APPROVAL_REQUIRED", constraints_evaluated: ["tool_allowed"]
+    })));
+    const h = handler();
+    const res = (await mw.wrapToolCall(request(), h)) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("PENDING_APPROVAL");
+    expect(data.approval_id).toBe("appr-1");
+    expect(data.proof_id).toBe("proof-real");   // verified receipt data present
+    expect(data.signature).toBe(proofJws);
+    expect(mw.proofs).toHaveLength(0);           // still no post-execution ProofArtifact
+  });
+});
+
 describe("awrapToolCall", () => {
   it("delegates to wrapToolCall (ALLOW path)", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig());

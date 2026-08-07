@@ -84,11 +84,17 @@ export class NuggetsAuthorityMiddleware {
       return this.denyMessage(toolCallId, toolName, authResponse);
     }
 
+    // Verify the signed decision for BOTH ALLOW and ESCALATE before acting on it.
     const proofFailure = await this.verifyProofOrNull(authResponse, toolCallId, toolName);
     if (proofFailure) {
       return proofFailure;
     }
 
+    if (authResponse.decision === "ESCALATE") {
+      return this.escalateMessage(toolCallId, toolName, authResponse);
+    }
+
+    // ALLOW: execute + emit ProofArtifact.
     const result = await handler(request);
     const resultContent = extractResultContent(result);
     const proof = buildProofArtifact({
@@ -221,6 +227,24 @@ export class NuggetsAuthorityMiddleware {
     });
   }
 
+  private escalateMessage(toolCallId: string, toolName: string, response: AuthorityEvaluationResponse): ToolMessage {
+    return new ToolMessage({
+      content: JSON.stringify({
+        status: "PENDING_APPROVAL",
+        tool: toolName,
+        approval_id: response.approval_id ?? null,
+        reason_code: response.reason_code ?? null,
+        proof_id: response.proof_id,
+        signature: response.signature,
+        constraints_evaluated: response.constraints_evaluated ?? [],
+        message: `Execution of '${toolName}' is pending human approval${
+          response.approval_id ? ` (approval ${response.approval_id})` : ""
+        }. This is not an error; the signed authority decision is verified — poll or present the approval to continue.`
+      }),
+      tool_call_id: toolCallId
+    });
+  }
+
   private errorMessage(toolCallId: string, toolName: string, message: string): ToolMessage {
     return new ToolMessage({
       content: JSON.stringify({
@@ -285,7 +309,7 @@ function coerceAuthorityResponse(value: unknown): AuthorityEvaluationResponse {
     throw new Error("authority response is not an object");
   }
   const response = value as Record<string, unknown>;
-  if (response.decision !== "ALLOW" && response.decision !== "DENY") {
+  if (response.decision !== "ALLOW" && response.decision !== "DENY" && response.decision !== "ESCALATE") {
     throw new Error("authority response missing decision");
   }
   if (typeof response.proof_id !== "string") {
@@ -299,6 +323,7 @@ function coerceAuthorityResponse(value: unknown): AuthorityEvaluationResponse {
     proof_id: response.proof_id,
     signature: response.signature,
     reason_code: typeof response.reason_code === "string" ? response.reason_code : null,
+    approval_id: typeof response.approval_id === "string" ? response.approval_id : null,
     constraints_evaluated: Array.isArray(response.constraints_evaluated)
       ? response.constraints_evaluated.filter((item): item is string => typeof item === "string")
       : []
