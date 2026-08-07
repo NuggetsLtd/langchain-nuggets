@@ -19,6 +19,15 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+    ignore:
+      # TypeScript majors (notably the 7.0 native-preview compiler) break the
+      # typecheck and must be adopted deliberately, not via an auto-bump.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # @types/node tracks the Node runtime we target (CI: 20/22); take its
+      # majors deliberately alongside a runtime bump, not automatically.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       js-dependencies:
         patterns:
