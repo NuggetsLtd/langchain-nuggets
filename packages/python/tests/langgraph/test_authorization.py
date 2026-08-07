@@ -37,23 +37,65 @@ async def test_require_scopes_allows_matching():
 
 
 @pytest.mark.asyncio
-async def test_ownership_filter_sets_owner_on_create():
+async def test_ownership_filter_stamps_metadata_owner_on_create():
+    # LangGraph persists ownership under value["metadata"]["owner"], NOT top-level.
     handler = ownership_filter()
     ctx = _make_ctx({"identity": "user-42"})
-    metadata = {"title": "My Thread"}
+    value = {"title": "My Thread"}
 
-    result = await handler(ctx, metadata)
+    result = await handler(ctx, value)
 
-    assert result["owner"] == "user-42"
-    assert result["title"] == "My Thread"
+    assert value["metadata"]["owner"] == "user-42"
+    assert value["title"] == "My Thread"
+    assert "owner" not in value  # not stamped at the top level
+    assert result == {"owner": "user-42"}  # and an owner filter is returned
 
 
 @pytest.mark.asyncio
-async def test_ownership_filter_returns_filter_on_read():
+async def test_ownership_filter_preserves_existing_metadata():
+    handler = ownership_filter()
+    ctx = _make_ctx({"identity": "user-42"})
+    value = {"metadata": {"title": "keep me"}}
+
+    await handler(ctx, value)
+
+    assert value["metadata"]["owner"] == "user-42"
+    assert value["metadata"]["title"] == "keep me"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [None, {}, {"query": "x"}])
+async def test_ownership_filter_returns_owner_filter_for_all_ops(value):
+    # read/search/update/delete (value may be None OR a dict) must return the
+    # exact-match owner filter — a dict value must not be misrouted.
     handler = ownership_filter()
     ctx = _make_ctx({"identity": "user-42"})
 
-    # For read operations, value is typically None or a non-dict
-    result = await handler(ctx, None)
+    result = await handler(ctx, value)
 
     assert result == {"owner": "user-42"}
+
+
+@pytest.mark.asyncio
+async def test_ownership_filter_fails_closed_on_non_mapping_metadata():
+    # metadata present but not a dict → can't stamp an owner → fail closed
+    # rather than persist an unowned resource.
+    handler = ownership_filter()
+    ctx = _make_ctx({"identity": "user-42"})
+
+    with pytest.raises(HTTPException) as exc_info:
+        await handler(ctx, {"metadata": ["not", "a", "mapping"]})
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_ownership_filter_fails_closed_without_identity():
+    # No identity → never create an unowned resource or an owner=None filter.
+    handler = ownership_filter()
+    ctx = _make_ctx({"identity": None})
+
+    with pytest.raises(HTTPException) as exc_info:
+        await handler(ctx, {"title": "x"})
+
+    assert exc_info.value.status_code == 403

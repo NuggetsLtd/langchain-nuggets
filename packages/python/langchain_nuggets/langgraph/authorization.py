@@ -1,7 +1,7 @@
 """Pre-built authorization handlers for common Nuggets identity patterns."""
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Dict
 
 
 def require_scopes(*scopes: str) -> Callable:
@@ -41,33 +41,53 @@ def require_scopes(*scopes: str) -> Callable:
 def ownership_filter() -> Callable:
     """Create an authorization handler that enforces resource ownership.
 
-    On **create** actions, sets ``metadata["owner"]`` to the user's identity.
-    On **read/search** actions, returns a filter dict so only resources owned
-    by the current user are returned.
+    Implements LangGraph's ownership contract for every operation:
 
-    Usage::
+    - **Create/update** (dict ``value``): stamps ``value["metadata"]["owner"]``
+      with the caller's identity — where LangGraph persists ownership. (It does
+      **not** write a top-level ``value["owner"]``.)
+    - **All operations**: returns the exact-match filter ``{"owner": identity}``
+      so read/search/update/delete only touch the caller's own resources.
+
+    Fails **closed** (HTTP 403) when there is no authenticated identity — never
+    create an unowned resource or an ``owner=None`` filter that could match
+    another tenant's data.
+
+    Register it for each operation you want owner-scoped::
 
         from langchain_nuggets.langgraph import ownership_filter
 
-        @auth.on.threads.create
-        async def on_create(ctx, value):
-            return await ownership_filter()(ctx, value)
-
-        @auth.on.threads.read
-        async def on_read(ctx, value):
-            return await ownership_filter()(ctx, value)
+        for op in (auth.on.threads.create, auth.on.threads.read,
+                   auth.on.threads.update, auth.on.threads.delete,
+                   auth.on.threads.search):
+            op(ownership_filter())
     """
 
-    async def handler(ctx: Any, value: Any) -> Any:
+    async def handler(ctx: Any, value: Any) -> Dict[str, str]:
+        from langgraph_sdk.auth.exceptions import HTTPException
+
         user = ctx.user if hasattr(ctx, "user") else ctx
         identity = _get_user_field(user, "identity")
 
-        # If value is a dict (typical for create metadata), add owner
-        if isinstance(value, dict):
-            value["owner"] = identity
-            return value
+        if not identity:
+            raise HTTPException(
+                status_code=403,
+                detail="Ownership enforcement requires an authenticated identity.",
+            )
 
-        # For read/search, return a filter
+        # Create/update payloads: stamp ownership where LangGraph stores it.
+        if isinstance(value, dict):
+            metadata = value.setdefault("metadata", {})
+            if not isinstance(metadata, dict):
+                # Can't stamp an owner into a non-mapping metadata — fail closed
+                # rather than persist an unowned/orphaned resource.
+                raise HTTPException(
+                    status_code=403,
+                    detail="Cannot enforce ownership: value['metadata'] must be a mapping.",
+                )
+            metadata["owner"] = identity
+
+        # Every operation is scoped to the caller's own resources.
         return {"owner": identity}
 
     return handler
