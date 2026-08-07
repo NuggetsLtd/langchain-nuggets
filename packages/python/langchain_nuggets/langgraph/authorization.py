@@ -64,12 +64,12 @@ def ownership_filter() -> Callable:
     """
 
     async def handler(ctx: Any, value: Any) -> Dict[str, str]:
+        from langgraph_sdk.auth.exceptions import HTTPException
+
         user = ctx.user if hasattr(ctx, "user") else ctx
         identity = _get_user_field(user, "identity")
 
         if not identity:
-            from langgraph_sdk.auth.exceptions import HTTPException
-
             raise HTTPException(
                 status_code=403,
                 detail="Ownership enforcement requires an authenticated identity.",
@@ -78,8 +78,14 @@ def ownership_filter() -> Callable:
         # Create/update payloads: stamp ownership where LangGraph stores it.
         if isinstance(value, dict):
             metadata = value.setdefault("metadata", {})
-            if isinstance(metadata, dict):
-                metadata["owner"] = identity
+            if not isinstance(metadata, dict):
+                # Can't stamp an owner into a non-mapping metadata — fail closed
+                # rather than persist an unowned/orphaned resource.
+                raise HTTPException(
+                    status_code=403,
+                    detail="Cannot enforce ownership: value['metadata'] must be a mapping.",
+                )
+            metadata["owner"] = identity
 
         # Every operation is scoped to the caller's own resources.
         return {"owner": identity}

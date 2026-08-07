@@ -77,6 +77,19 @@ async def test_ownership_filter_returns_owner_filter_for_all_ops(value):
 
 
 @pytest.mark.asyncio
+async def test_ownership_filter_fails_closed_on_non_mapping_metadata():
+    # metadata present but not a dict → can't stamp an owner → fail closed
+    # rather than persist an unowned resource.
+    handler = ownership_filter()
+    ctx = _make_ctx({"identity": "user-42"})
+
+    with pytest.raises(HTTPException) as exc_info:
+        await handler(ctx, {"metadata": ["not", "a", "mapping"]})
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_ownership_filter_fails_closed_without_identity():
     # No identity → never create an unowned resource or an owner=None filter.
     handler = ownership_filter()
