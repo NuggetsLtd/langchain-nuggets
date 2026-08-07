@@ -447,6 +447,19 @@ describe("action context resolver", () => {
     }
   });
 
+  it("fails closed on a whitespace-only target", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig({
+      actionContextResolver: () => ({ target: "   " })
+    }));
+    withClient(mw, allowPost()); // would ALLOW+run the handler if validation let it through
+    const h = handler();
+    const res = (await mw.wrapToolCall(
+      { tool_call: { name: "lookup", args: {}, id: "c1" } }, h
+    )) as ToolMessage;
+    expect(h).not.toHaveBeenCalled();
+    expect(JSON.parse(res.content as string).status).toBe("ERROR");
+  });
+
   it("allows both amount and currency to be absent (non-monetary tool)", async () => {
     const mw = new NuggetsAuthorityMiddleware(makeConfig({
       actionContextResolver: () => ({ target: "did:web:merchant" })
@@ -495,6 +508,18 @@ describe("ESCALATE decision", () => {
     expect(data.status).toBe("PENDING_APPROVAL");
     expect(data.approval_id).toBe("appr-123");
     expect(data.reason_code).toBe("APPROVAL_REQUIRED");
+  });
+
+  it("surfaces a numeric approval_id verbatim (does not drop it to null)", async () => {
+    const mw = new NuggetsAuthorityMiddleware(makeConfig()); // verifyProofs: false
+    withClient(mw, vi.fn(async () => ({
+      decision: "ESCALATE", proof_id: "p", signature: "s",
+      reason_code: "APPROVAL_REQUIRED", approval_id: 500
+    })));
+    const res = (await mw.wrapToolCall(request(), handler())) as ToolMessage;
+    const data = JSON.parse(res.content as string);
+    expect(data.status).toBe("PENDING_APPROVAL");
+    expect(data.approval_id).toBe(500);
   });
 
   it("emits no proof artifact on ESCALATE", async () => {

@@ -239,7 +239,7 @@ export class NuggetsAuthorityMiddleware {
         constraints_evaluated: response.constraints_evaluated ?? [],
         message: `Execution of '${toolName}' is pending human approval${
           response.approval_id ? ` (approval ${response.approval_id})` : ""
-        }. This is not an error; the signed authority decision is verified — poll or present the approval to continue.`
+        }. This is not an error. The ESCALATE decision's signature is verified; 'approval_id' is a server-issued handle, not part of the signed receipt. Present or poll the approval to continue.`
       }),
       tool_call_id: toolCallId
     });
@@ -287,7 +287,7 @@ function validateActionContextExtras(
   if (typeof extras !== "object" || extras === null) {
     throw new Error("actionContextResolver must return an object or undefined");
   }
-  if (extras.target !== undefined && (typeof extras.target !== "string" || extras.target.length === 0)) {
+  if (extras.target !== undefined && (typeof extras.target !== "string" || extras.target.trim().length === 0)) {
     throw new Error("actionContextResolver target must be a non-empty string");
   }
   const hasAmount = extras.amount_minor !== undefined;
@@ -323,7 +323,10 @@ function coerceAuthorityResponse(value: unknown): AuthorityEvaluationResponse {
     proof_id: response.proof_id,
     signature: response.signature,
     reason_code: typeof response.reason_code === "string" ? response.reason_code : null,
-    approval_id: typeof response.approval_id === "string" ? response.approval_id : null,
+    approval_id:
+      typeof response.approval_id === "string" || typeof response.approval_id === "number"
+        ? response.approval_id
+        : null,
     constraints_evaluated: Array.isArray(response.constraints_evaluated)
       ? response.constraints_evaluated.filter((item): item is string => typeof item === "string")
       : []

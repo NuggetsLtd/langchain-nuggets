@@ -127,7 +127,10 @@ export interface AuthorityEvaluationResponse {
   proof_id: string;
   signature: string;
   reason_code?: string | null;
-  approval_id?: string | null;
+  // Server-issued approval handle. NOT part of the signed authority receipt —
+  // surface it as an opaque handle, not a cryptographically verified field.
+  // Preserved verbatim (the backend may issue it as a number or a string).
+  approval_id?: string | number | null;
   constraints_evaluated?: string[];
 }
 
