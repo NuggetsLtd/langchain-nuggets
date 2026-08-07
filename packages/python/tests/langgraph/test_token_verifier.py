@@ -283,7 +283,23 @@ class TestAllowAnyAudience:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_bypasses_aud_only(self):
+    async def test_bypasses_aud_only_even_when_audience_configured(self):
+        # The flag disables the aud check regardless of a configured audience:
+        # a mismatching aud still verifies. (Would fail if the flag were a no-op
+        # once an audience is set.)
+        _mock_discovery_and_jwks()
+        verifier = NuggetsTokenVerifier(
+            ISSUER, audience="configured-audience", allow_any_audience=True
+        )
+        token = _make_jwt({}, aud="some-other-audience")
+
+        claims = await verifier.verify_token(token)
+
+        assert claims["sub"] == "user-123"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_bypasses_aud_with_no_audience(self):
         _mock_discovery_and_jwks()
         verifier = NuggetsTokenVerifier(ISSUER, allow_any_audience=True)
         token = _make_jwt({}, aud="some-other-audience")
@@ -291,6 +307,16 @@ class TestAllowAnyAudience:
         claims = await verifier.verify_token(token)
 
         assert claims["sub"] == "user-123"
+
+    def test_warns_whenever_enabled(self, caplog):
+        # Warning fires even when an audience is also configured.
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            NuggetsTokenVerifier(
+                ISSUER, audience="configured-audience", allow_any_audience=True
+            )
+        assert any("allow_any_audience=True" in r.message for r in caplog.records)
 
     @respx.mock
     @pytest.mark.asyncio

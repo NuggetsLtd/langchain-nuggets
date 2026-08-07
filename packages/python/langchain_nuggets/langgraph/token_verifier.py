@@ -62,11 +62,13 @@ class NuggetsTokenVerifier:
         # escape hatch that bypasses ONLY the `aud` match — signature, `iss`,
         # `exp`, `typ`, and the RS256 pin all still apply.
         self._allow_any_audience = allow_any_audience
-        if self._audience is None and self._allow_any_audience:
+        if self._allow_any_audience:
+            # Warn whenever the opt-out is on — it disables the `aud` check
+            # regardless of whether an `audience` is also configured.
             logger.warning(
                 "NuggetsTokenVerifier: allow_any_audience=True — JWT audience (aud) "
                 "is NOT enforced. This is insecure and intended only for migration; "
-                "set an audience for production."
+                "set an audience and remove this flag for production."
             )
         self._jwks_cache_ttl = jwks_cache_ttl
 
@@ -140,16 +142,19 @@ class NuggetsTokenVerifier:
         # Fetch and find the matching key
         signing_key = await self._get_signing_key(kid)
 
+        # `allow_any_audience` disables the aud match whenever it's set — even if
+        # an audience is configured — bypassing ONLY aud (all else still verified).
+        enforce_aud = self._audience is not None and not self._allow_any_audience
         try:
             claims: Dict[str, Any] = jwt.decode(
                 token,
                 signing_key.key,
                 # Pinned allowlist — never the header's `alg`.
                 algorithms=_ALLOWED_ALGORITHMS,
-                audience=self._audience if self._audience else None,
+                audience=self._audience if enforce_aud else None,
                 issuer=self._issuer_url,
                 leeway=_CLOCK_SKEW_LEEWAY,
-                options={"verify_aud": self._audience is not None},
+                options={"verify_aud": enforce_aud},
             )
         except jwt.ExpiredSignatureError:
             raise NuggetsAuthError("Token has expired", 401)
