@@ -181,7 +181,7 @@ async def test_userinfo_401():
 @pytest.mark.asyncio
 async def test_missing_sub_claim():
     _mock_discovery_and_jwks()
-    verifier = NuggetsTokenVerifier(ISSUER)
+    verifier = NuggetsTokenVerifier(ISSUER, allow_any_audience=True)
 
     # Create a JWT without 'sub'
     payload = {
@@ -194,6 +194,54 @@ async def test_missing_sub_claim():
 
     with pytest.raises(NuggetsAuthError, match="sub"):
         await verifier.verify_token(token)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_rejects_non_rs256_algorithm():
+    # #5: the verification algorithm must NOT be taken from the token header.
+    # A token signed with a different (still asymmetric) alg must be rejected.
+    _mock_discovery_and_jwks()
+    verifier = NuggetsTokenVerifier(ISSUER, audience="test-audience")
+    payload = {
+        "sub": "user-123",
+        "iss": ISSUER,
+        "aud": "test-audience",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+    }
+    token = jwt.encode(
+        payload, _private_key, algorithm="RS512", headers={"kid": "test-key-1"}
+    )
+
+    with pytest.raises(NuggetsAuthError):
+        await verifier.verify_token(token)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_jwt_without_configured_audience_is_rejected():
+    # #3: a JWT must not be accepted when no audience is configured — otherwise
+    # any correctly-signed issuer token authenticates regardless of aud.
+    _mock_discovery_and_jwks()
+    verifier = NuggetsTokenVerifier(ISSUER)  # no audience configured
+    token = _make_jwt({})
+
+    with pytest.raises(NuggetsAuthError, match="audience"):
+        await verifier.verify_token(token)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_allow_any_audience_opt_out():
+    # Deliberate, explicit opt-out for narrow cases (mirrors verify_proofs).
+    _mock_discovery_and_jwks()
+    verifier = NuggetsTokenVerifier(ISSUER, allow_any_audience=True)
+    token = _make_jwt({})
+
+    claims = await verifier.verify_token(token)
+
+    assert claims["sub"] == "user-123"
 
 
 @respx.mock

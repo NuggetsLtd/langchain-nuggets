@@ -8,6 +8,11 @@ import httpx
 import jwt
 from jwt import PyJWK
 
+# The Nuggets issuer signs access tokens with RS256. Never derive the accepted
+# algorithm from the (attacker-controlled) token header — pin it here so a token
+# presenting a different `alg` can't steer verification (RS/HS confusion, etc.).
+_ALLOWED_ALGORITHMS = ["RS256"]
+
 
 class NuggetsAuthError(Exception):
     """Authentication error from Nuggets token verification."""
@@ -35,9 +40,14 @@ class NuggetsTokenVerifier:
         jwks_cache_ttl: int = 3600,
         ca_cert: Optional[str] = None,
         verify_ssl: bool = True,
+        allow_any_audience: bool = False,
     ) -> None:
         self._issuer_url = issuer_url.rstrip("/")
         self._audience = audience
+        # RFC 9068: a resource server must reject JWT access tokens whose `aud`
+        # doesn't identify it. Without an audience we can't do that, so JWT
+        # verification fails closed — unless the caller deliberately opts out.
+        self._allow_any_audience = allow_any_audience
         self._jwks_cache_ttl = jwks_cache_ttl
 
         # TLS configuration for self-hosted deployments
@@ -99,7 +109,15 @@ class NuggetsTokenVerifier:
             raise
 
         kid = unverified_header.get("kid")
-        alg = unverified_header.get("alg", "RS256")
+
+        # Fail closed if we can't enforce audience (RFC 9068), unless opted out.
+        if self._audience is None and not self._allow_any_audience:
+            raise NuggetsAuthError(
+                "Refusing to verify a JWT without a configured audience. Pass "
+                "audience=<your LangGraph resource identifier> (RFC 9068), or set "
+                "allow_any_audience=True to explicitly disable this check (insecure).",
+                401,
+            )
 
         # Fetch and find the matching key
         signing_key = await self._get_signing_key(kid)
@@ -108,10 +126,11 @@ class NuggetsTokenVerifier:
             claims = jwt.decode(
                 token,
                 signing_key.key,
-                algorithms=[alg],
+                # Pinned allowlist — never the header's `alg`.
+                algorithms=_ALLOWED_ALGORITHMS,
                 audience=self._audience if self._audience else None,
                 issuer=self._issuer_url,
-                options={"verify_aud": bool(self._audience)},
+                options={"verify_aud": self._audience is not None},
             )
         except jwt.ExpiredSignatureError:
             raise NuggetsAuthError("Token has expired", 401)
@@ -132,9 +151,17 @@ class NuggetsTokenVerifier:
         keys = await self._fetch_jwks()
 
         for key_data in keys:
-            jwk = PyJWK(key_data)
+            # Only consider RSA signing keys advertised for RS256 (or unspecified).
+            # Skip encryption keys, EC/oct keys, and keys pinned to another alg —
+            # this keeps key selection independent of the token header.
+            if key_data.get("kty") != "RSA":
+                continue
+            if key_data.get("use") not in (None, "sig"):
+                continue
+            if key_data.get("alg") not in (None, "RS256"):
+                continue
             if kid is None or key_data.get("kid") == kid:
-                return jwk
+                return PyJWK(key_data)
 
         raise NuggetsAuthError(f"No signing key found for kid={kid}", 401)
 

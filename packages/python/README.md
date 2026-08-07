@@ -170,9 +170,14 @@ Keep the private JWKS in a secret store or mounted secret — never in source co
 ```python
 from langchain_nuggets.langgraph import NuggetsAuth
 
-nuggets = NuggetsAuth(issuer_url="https://auth.nuggets.life")
+nuggets = NuggetsAuth(
+    issuer_url="https://auth.nuggets.life",
+    audience="https://your-langgraph-deployment/",  # this server's resource identifier
+)
 auth = nuggets.auth  # pass to langgraph.json
 ```
+
+**Always set `audience`** to this deployment's resource identifier. Per RFC 9068 a resource server must reject JWT access tokens whose `aud` doesn't identify it; without an audience the verifier can't do that, so JWT verification **fails closed**. Only if you have a deliberate reason to accept any audience from the issuer, pass `allow_any_audience=True` (insecure) to opt out. Tokens are verified with a fixed `RS256` allowlist (never the token header's `alg`).
 
 Pre-built authorization helpers:
 

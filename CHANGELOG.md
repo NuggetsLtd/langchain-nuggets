@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Security
+
+- **LangGraph OIDC token verifier hardened** (`NuggetsTokenVerifier` / `NuggetsAuth`):
+  - JWT verification now **fails closed when no `audience` is configured** (RFC 9068), instead of silently disabling `aud` checks — so a correctly-signed issuer token minted for a different client/resource is no longer accepted. A deliberate `allow_any_audience=True` opt-out is available. README updated to set `audience`.
+  - The verification algorithm is pinned to a fixed `["RS256"]` allowlist rather than taken from the (attacker-controlled) token header, and JWKS key selection filters by `kty`/`use`/`alg`.
+
 ## [1.1.1]
 
 Security hardening. Fixes #54.
