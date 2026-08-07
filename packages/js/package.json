@@ -59,10 +59,10 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^24.10.0",
+    "@types/node": "^26.1.2",
     "langchain": "^1.4.0",
     "tsup": "^8.5.0",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.0.8"
   },
   "engines": {
