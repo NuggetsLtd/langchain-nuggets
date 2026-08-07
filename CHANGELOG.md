@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.1.0]
+
+Payment / approval half of the ACP action contract. Additive — expands the set of possible decisions, so a minor bump. JS and Python stay behaviourally symmetric.
+
+### Added
+
+- **Opt-in action-context resolver** (`action_context_resolver` / `actionContextResolver`) mapping a tool call to `{target?, amount_minor?, currency?}`, merged into the signed action. Money fields are never inferred from tool args — the resolver is their only source. Validated as a pair (both or neither), `amount_minor` a non-negative integer (bool rejected), `currency` matching `^[A-Z]{3}$`, `target` a non-empty (non-whitespace) string. Invalid output fails **closed** with an `ERROR` `ToolMessage` before the handler runs, in every mode including `test_mode`.
+- **`ESCALATE` decision** surfaced as a first-class, non-error `PENDING_APPROVAL` `ToolMessage`. The signed decision is verified exactly as `ALLOW` is; on success the wrapped tool never runs and no proof artifact is emitted. The result carries the verified `proof_id`/`signature` plus the server-issued `approval_id`.
+- `approval_id` on `AuthorityEvaluationResponse` (`str | int | null`), preserved verbatim. It is a server-issued handle, **not** part of the signed receipt; applications own polling/redeem out-of-band.
+- Smoke scripts read optional `NUGGETS_AMOUNT_MINOR` / `NUGGETS_CURRENCY` to exercise ALLOW / ESCALATE / DENY routing; the handler is a no-op and never executes a payment.
+
 ## [1.0.0]
 
 First stable release. The authority middleware is verified in production — enforce flag on, full authenticated adversarial matrix passing, proof verification on by default — so the public API is now covered by semantic-versioning stability guarantees.

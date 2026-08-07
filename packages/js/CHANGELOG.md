@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.1.0]
+
+Payment / approval half of the ACP action contract. Additive — expands the set of possible decisions, so a minor bump. At parity with the Python `langchain-nuggets` 1.1.0 release.
+
+### Added
+
+- **`actionContextResolver`** on `MiddlewareConfig` — maps a tool call to `{ target?, amount_minor?, currency? }`, merged into the signed action. Money fields are never inferred from tool args. Validated as a pair (both or neither), `amount_minor` a non-negative safe integer, `currency` matching `^[A-Z]{3}$`, `target` a non-empty (non-whitespace) string. Invalid output fails **closed** with an `ERROR` `ToolMessage` before the handler runs, including in `testMode`.
+- **`ESCALATE` decision** surfaced as a first-class, non-error `PENDING_APPROVAL` `ToolMessage`. The signed decision is verified exactly as `ALLOW` is; the tool never runs and no proof artifact is emitted. The result carries the verified `proof_id`/`signature` plus the server-issued `approval_id`.
+- `approval_id` on `AuthorityEvaluationResponse` (`string | number | null`), preserved verbatim — a server-issued handle, **not** part of the signed receipt; applications own polling/redeem out-of-band.
+- Smoke script reads optional `NUGGETS_AMOUNT_MINOR` / `NUGGETS_CURRENCY`; the handler is a no-op and never executes a payment.
+
 ## [1.0.0]
 
 First stable release. No functional changes from 0.1.0 — promoted to 1.0.0 after end-to-end validation against a live backend (OIDC token minting, `agent_proof` signing, authority `ALLOW`, and discover-and-pin proof verification all confirmed against the deployed dev environment), plus full parity-test coverage. The public API is now covered by semantic-versioning stability guarantees, matching the Python package.
