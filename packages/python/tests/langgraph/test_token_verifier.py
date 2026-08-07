@@ -233,6 +233,19 @@ async def test_jwt_without_configured_audience_is_rejected():
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_blank_audience_treated_as_unconfigured():
+    # A blank/whitespace audience is a misconfiguration — it must trip the clear
+    # fail-closed config error, not a confusing downstream aud-mismatch.
+    _mock_discovery_and_jwks()
+    verifier = NuggetsTokenVerifier(ISSUER, audience="   ")
+    token = _make_jwt({})
+
+    with pytest.raises(NuggetsAuthError, match="without a configured audience"):
+        await verifier.verify_token(token)
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_allow_any_audience_opt_out():
     # Deliberate, explicit opt-out for narrow cases (mirrors verify_proofs).
     _mock_discovery_and_jwks()

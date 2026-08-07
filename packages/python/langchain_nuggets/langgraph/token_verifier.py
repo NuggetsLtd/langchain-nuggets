@@ -43,7 +43,11 @@ class NuggetsTokenVerifier:
         allow_any_audience: bool = False,
     ) -> None:
         self._issuer_url = issuer_url.rstrip("/")
-        self._audience = audience
+        # Normalize a blank/whitespace audience to None so the fail-closed guard
+        # and the decode options agree (a blank string is "not configured", not a
+        # valid audience to enforce).
+        normalized_audience = audience.strip() if isinstance(audience, str) else audience
+        self._audience = normalized_audience or None
         # RFC 9068: a resource server must reject JWT access tokens whose `aud`
         # doesn't identify it. Without an audience we can't do that, so JWT
         # verification fails closed — unless the caller deliberately opts out.
