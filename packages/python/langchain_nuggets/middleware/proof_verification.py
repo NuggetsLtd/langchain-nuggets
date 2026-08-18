@@ -20,6 +20,7 @@ rejected at the issuer pin (foreign `iss`) and/or because its key isn't at the
 discovered `jwks_uri`. A third party can verify an emitted proof out-of-band by
 discovering the same endpoint (or supplying the known `issuer` + `jwks_uri`).
 """
+
 from __future__ import annotations
 
 import json
@@ -29,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 import jwt
 from jwt.algorithms import RSAAlgorithm
+from jwt.exceptions import InvalidSignatureError, PyJWTError
 
 
 class ProofVerificationError(Exception):
@@ -37,7 +39,9 @@ class ProofVerificationError(Exception):
 
 _CACHE_TTL_SECONDS = 300
 # Small TTL caches so we don't refetch discovery / JWKS on every ALLOW.
-_discovery_cache: Dict[str, Tuple[Tuple[str, str], float]] = {}  # api_url -> ((issuer, jwks_uri), t)
+_discovery_cache: Dict[
+    str, Tuple[Tuple[str, str], float]
+] = {}  # api_url -> ((issuer, jwks_uri), t)
 _jwks_cache: Dict[str, Tuple[List[Dict[str, Any]], float]] = {}  # jwks_uri -> (keys, t)
 
 
@@ -61,6 +65,7 @@ def _fresh(entry, ttl: float = _CACHE_TTL_SECONDS) -> bool:
 
 
 # --- discovery ------------------------------------------------------------
+
 
 def _discovery_url(api_url: str) -> str:
     return f"{api_url.rstrip('/')}/.well-known/authority-configuration"
@@ -147,6 +152,7 @@ async def adiscover_authority(
 
 # --- jwks fetch + verification --------------------------------------------
 
+
 def _keys_from_response(resp: httpx.Response, jwks_uri: str) -> List[Dict[str, Any]]:
     if resp.status_code != 200:
         raise ProofVerificationError(f"JWKS fetch failed ({resp.status_code}) for {jwks_uri}")
@@ -177,12 +183,12 @@ def _decode_header(signature: str) -> Dict[str, Any]:
         raise ProofVerificationError(f"proof is not a decodable JWS: {exc}") from exc
 
 
-def _unverified_iss(signature: str) -> str:
-    # Pre-parse only: extract iss without signature OR claim validation. PyJWT
-    # may otherwise enforce exp/nbf/iat/aud when present, which is irrelevant to
-    # issuer pinning (the verifying decode below does the real claim checks).
+def _unverified_claims(signature: str) -> Dict[str, Any]:
+    # Pre-parse only: extract the claims needed to choose fail-closed validation
+    # before signature verification. The verifying decode below establishes that
+    # these are the claims the authority actually signed.
     try:
-        iss = jwt.decode(
+        claims = jwt.decode(
             signature,
             options={
                 "verify_signature": False,
@@ -191,16 +197,20 @@ def _unverified_iss(signature: str) -> str:
                 "verify_iat": False,
                 "verify_aud": False,
             },
-        ).get("iss")
+        )
     except Exception as exc:
         raise ProofVerificationError(f"proof is not a decodable JWS: {exc}") from exc
-    if not iss:
-        raise ProofVerificationError("proof has no iss claim")
-    return iss
+    return claims
 
 
 def _verify_signature_against_keys(
-    signature: str, keys: List[Dict[str, Any]], kid: Optional[str]
+    signature: str,
+    keys: List[Dict[str, Any]],
+    kid: Optional[str],
+    *,
+    issuer: str,
+    expected: Dict[str, Any],
+    require_v1: bool,
 ) -> Dict[str, Any]:
     candidates = _candidate_keys(keys, kid)
     if not candidates:
@@ -209,25 +219,92 @@ def _verify_signature_against_keys(
     for jwk in candidates:
         try:
             public_key = RSAAlgorithm.from_jwk(json.dumps(jwk))
-            return jwt.decode(signature, key=public_key, algorithms=["RS256"])
-        except Exception as exc:  # try the next published key
+        except Exception as exc:
             last_err = exc
-    raise ProofVerificationError(
-        f"proof signature verification failed: {last_err}"
-    ) from last_err
+            continue
+        try:
+            options: Dict[str, Any] = {}
+            kwargs: Dict[str, Any] = {"issuer": issuer}
+            if isinstance(expected.get("aud"), str):
+                kwargs["audience"] = expected["aud"]
+            else:
+                options["verify_aud"] = False
+            if require_v1:
+                options["require"] = ["iat", "exp", "jti", "aud"]
+            claims = jwt.decode(
+                signature,
+                key=public_key,
+                algorithms=["RS256"],
+                options=options,
+                **kwargs,
+            )
+        except InvalidSignatureError as exc:  # try the next published key
+            last_err = exc
+            continue
+        except PyJWTError as exc:
+            raise ProofVerificationError(f"proof claim validation failed: {exc}") from exc
+        if require_v1 and (
+            not isinstance(claims.get("iat"), (int, float))
+            or isinstance(claims.get("iat"), bool)
+            or not isinstance(claims.get("exp"), (int, float))
+            or isinstance(claims.get("exp"), bool)
+            or claims["exp"] <= claims["iat"]
+        ):
+            raise ProofVerificationError("proof has an invalid bounded lifetime")
+        return claims
+    raise ProofVerificationError(f"proof signature verification failed: {last_err}") from last_err
+
+
+def _validate_action_context_contract(
+    claims: Dict[str, Any], expected: Dict[str, Any], require_v1: bool
+) -> None:
+    proof_version = claims.get("action_context_version")
+    expected_version = expected.get("action_context_version")
+    for source, version in (("proof", proof_version), ("expected", expected_version)):
+        if version is not None and version != 1:
+            raise ProofVerificationError(
+                f"unsupported {source} action_context_version: {version!r}"
+            )
+    if not require_v1:
+        return
+    if (
+        expected_version != 1
+        or not isinstance(expected.get("aud"), str)
+        or not expected["aud"]
+        or not isinstance(expected.get("action_context_hash"), str)
+        or not expected["action_context_hash"]
+    ):
+        raise ProofVerificationError(
+            "v1 proof verification requires expected action_context_version, aud, "
+            "and action_context_hash"
+        )
 
 
 def _verify_core(
     signature: str, expected: Dict[str, Any], issuer: str, keys: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     # 1. Pin the issuer (VC-idiomatic) before trusting anything else.
-    iss = _unverified_iss(signature)
+    unverified = _unverified_claims(signature)
+    iss = unverified.get("iss")
+    if not iss:
+        raise ProofVerificationError("proof has no iss claim")
     if iss != issuer:
         raise ProofVerificationError(f"proof issuer mismatch: proof={iss!r} expected={issuer!r}")
+    require_v1 = (
+        unverified.get("action_context_version") == 1 or expected.get("action_context_version") == 1
+    )
     # 2. Verify the signature against the discovered key set.
     header = _decode_header(signature)
-    claims = _verify_signature_against_keys(signature, keys, header.get("kid"))
+    claims = _verify_signature_against_keys(
+        signature,
+        keys,
+        header.get("kid"),
+        issuer=issuer,
+        expected=expected,
+        require_v1=require_v1,
+    )
     # 3. Bind to the request/response.
+    _validate_action_context_contract(claims, expected, require_v1)
     _bind(claims, expected)
     return claims
 
@@ -308,7 +385,15 @@ def _bind(claims: Dict[str, Any], expected: Dict[str, Any]) -> None:
                 f"proof {field} mismatch: proof={claims.get(field)!r} expected={expected[field]!r}"
             )
 
-    for field in ("decision", "proof_id", "agent_id", "controller_id", "action_context_hash"):
+    for field in (
+        "decision",
+        "proof_id",
+        "agent_id",
+        "controller_id",
+        "aud",
+        "action_context_version",
+        "action_context_hash",
+    ):
         check(field)
 
     if "constraints_evaluated" in expected:

@@ -12,9 +12,12 @@ from httpx import Response
 from jwt.algorithms import RSAAlgorithm
 from langchain_core.messages import ToolMessage
 
+from langchain_nuggets.middleware.action_context import (
+    compute_action_context_hash_v1,
+    hash_parameters_v1,
+)
 from langchain_nuggets.middleware.authority_middleware import NuggetsAuthorityMiddleware
-from langchain_nuggets.middleware.proof import hash_parameters
-from langchain_nuggets.middleware.types import MiddlewareConfig
+from langchain_nuggets.middleware.types import AuthorityEvaluationRequest, MiddlewareConfig
 
 
 @pytest.fixture(scope="module")
@@ -36,6 +39,26 @@ def rsa_keypair():
     return {"private_pem": private_pem, "public_pem": public_pem}
 
 
+@pytest.fixture(autouse=True)
+def authority_discovery(monkeypatch):
+    value = (
+        "did:web:auth.nuggets.test:portalC1",
+        "https://api.nuggets.test/.well-known/jwks.json",
+    )
+
+    async def adiscover(*args, **kwargs):
+        return value
+
+    monkeypatch.setattr(
+        "langchain_nuggets.middleware.authority_middleware.discover_authority",
+        MagicMock(return_value=value),
+    )
+    monkeypatch.setattr(
+        "langchain_nuggets.middleware.authority_middleware.adiscover_authority",
+        adiscover,
+    )
+
+
 @pytest.fixture
 def config(rsa_keypair):
     # verify_proofs is off here: these tests exercise routing/proof-emission
@@ -47,7 +70,7 @@ def config(rsa_keypair):
         oidc_issuer_url="https://auth.nuggets.test",
         agent_id="agent-123",
         controller_id="org-456",
-        delegation_id="del-789",
+        delegation_id="789",
         agent_private_key=rsa_keypair["private_pem"],
         verify_proofs=False,
     )
@@ -190,7 +213,7 @@ class TestProofVerificationDefaultOn:
             api_url="https://api.nuggets.test",
             agent_id="agent-123",
             controller_id="org-456",
-            delegation_id="del-789",
+            delegation_id="789",
             test_mode=True,
             verify_proofs=True,
         )
@@ -227,6 +250,22 @@ class TestProofVerificationDefaultOn:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         ).decode()
+        cfg = MiddlewareConfig(
+            api_url="https://api.nuggets.test",
+            oidc_issuer_url="https://auth.nuggets.test",
+            agent_id="agent-123",
+            controller_id="org-456",
+            delegation_id="789",
+            agent_private_key=rsa_keypair["private_pem"],
+            verify_proofs=True,
+        )
+        binding_middleware = NuggetsAuthorityMiddleware(cfg)
+        action_context_hash = compute_action_context_hash_v1(
+            binding_middleware._build_eval_request(
+                "external_api_call", {"target": "stripe", "amount": 100}
+            )
+        )
+        now = int(time.time())
         proof_jws = jwt.encode(
             {
                 "proof_id": "proof-real",
@@ -234,21 +273,17 @@ class TestProofVerificationDefaultOn:
                 "controller_id": "org-456",
                 "constraints_evaluated": ["tool_allowed"],
                 "decision": "ALLOW",
-                "iat": int(time.time()),
+                "action_context_version": 1,
+                "action_context_hash": action_context_hash,
+                "aud": "agent-123",
+                "jti": "proof-real",
+                "iat": now,
+                "exp": now + 300,
                 "iss": issuer,
             },
             portal_pem,
             algorithm="RS256",
             headers={"kid": kid},
-        )
-        cfg = MiddlewareConfig(
-            api_url="https://api.nuggets.test",
-            oidc_issuer_url="https://auth.nuggets.test",
-            agent_id="agent-123",
-            controller_id="org-456",
-            delegation_id="del-789",
-            agent_private_key=rsa_keypair["private_pem"],
-            verify_proofs=True,
         )
         middleware = NuggetsAuthorityMiddleware(cfg)
         middleware._client = MagicMock()
@@ -364,7 +399,7 @@ class TestSyncWrapToolCall:
 
         call_args = middleware._client.post.call_args
         payload = call_args[0][1]
-        expected_hash = hash_parameters({"target": "stripe", "amount": 100})
+        expected_hash = hash_parameters_v1({"target": "stripe", "amount": 100})
         assert payload["action"]["parameters_hash"] == expected_hash
 
     def test_multiple_calls_accumulate_proofs(self, config, allow_response, mock_request, mock_handler):
@@ -640,7 +675,7 @@ class TestActionContextResolver:
             api_url="https://api.nuggets.test",
             agent_id="agent-123",
             controller_id="org-456",
-            delegation_id="del-789",
+            delegation_id="789",
             test_mode=True,
             action_context_resolver=boom,
         )
@@ -810,6 +845,22 @@ class TestEscalateDecision:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         ).decode()
+        cfg = MiddlewareConfig(
+            api_url="https://api.nuggets.test",
+            oidc_issuer_url="https://auth.nuggets.test",
+            agent_id="agent-123",
+            controller_id="org-456",
+            delegation_id="789",
+            agent_private_key=rsa_keypair["private_pem"],
+            verify_proofs=True,
+        )
+        binding_middleware = NuggetsAuthorityMiddleware(cfg)
+        action_context_hash = compute_action_context_hash_v1(
+            binding_middleware._build_eval_request(
+                "external_api_call", {"target": "stripe", "amount": 100}
+            )
+        )
+        now = int(time.time())
         proof_jws = jwt.encode(
             {
                 "proof_id": "proof-real",
@@ -817,21 +868,17 @@ class TestEscalateDecision:
                 "controller_id": "org-456",
                 "constraints_evaluated": ["tool_allowed"],
                 "decision": "ESCALATE",
-                "iat": int(time.time()),
+                "action_context_version": 1,
+                "action_context_hash": action_context_hash,
+                "aud": "agent-123",
+                "jti": "proof-real",
+                "iat": now,
+                "exp": now + 300,
                 "iss": issuer,
             },
             portal_pem,
             algorithm="RS256",
             headers={"kid": kid},
-        )
-        cfg = MiddlewareConfig(
-            api_url="https://api.nuggets.test",
-            oidc_issuer_url="https://auth.nuggets.test",
-            agent_id="agent-123",
-            controller_id="org-456",
-            delegation_id="del-789",
-            agent_private_key=rsa_keypair["private_pem"],
-            verify_proofs=True,
         )
         middleware = NuggetsAuthorityMiddleware(cfg)
         middleware._client = MagicMock()
@@ -953,7 +1000,7 @@ class TestMiddlewareTls:
             oidc_issuer_url="https://auth.test",
             agent_id="a",
             controller_id="c",
-            delegation_id="d",
+            delegation_id="1",
             ca_cert="/path/ca.pem",
             agent_private_key=rsa_keypair["private_pem"],
         )
@@ -1110,7 +1157,9 @@ class TestTestMode:
         middleware.wrap_tool_call(mock_request, mock_handler)
 
         proof = middleware.proofs[0]
-        assert proof.parameters_hash == hash_parameters({"target": "stripe", "amount": 100})
+        assert proof.parameters_hash == hash_parameters_v1(
+            {"target": "stripe", "amount": 100}
+        )
         assert proof.result_hash  # non-empty
         assert proof.intent_hash is not None
 
@@ -1182,9 +1231,16 @@ class TestAgentProof:
             payload["agent_proof"],
             rsa_keypair["public_pem"],
             algorithms=["RS256"],
+            audience="did:web:auth.nuggets.test:portalC1",
         )
         assert decoded["agent_id"] == config.agent_id
         assert decoded["nonce"] == payload["action"]["nonce"]
+        assert decoded["aud"] == "did:web:auth.nuggets.test:portalC1"
+        assert isinstance(decoded["jti"], str)
+        assert decoded["action_context_version"] == 1
+        assert decoded["action_context_hash"] == compute_action_context_hash_v1(
+            AuthorityEvaluationRequest(**payload)
+        )
         assert "iat" in decoded
         assert "exp" in decoded
         assert decoded["exp"] > decoded["iat"]
@@ -1218,7 +1274,7 @@ class TestAgentProof:
             oidc_issuer_url="https://auth.nuggets.test",
             agent_id="agent-123",
             controller_id="c",
-            delegation_id="d",
+            delegation_id="1",
             agent_private_key=jwk,
         )
         middleware = NuggetsAuthorityMiddleware(config)
@@ -1232,6 +1288,7 @@ class TestAgentProof:
             payload["agent_proof"],
             rsa_keypair["public_pem"],
             algorithms=["RS256"],
+            audience="did:web:auth.nuggets.test:portalC1",
         )
         assert decoded["agent_id"] == "agent-123"
 
@@ -1246,7 +1303,7 @@ class TestAgentProof:
             oidc_issuer_url="https://auth.nuggets.test",
             agent_id="agent-123",
             controller_id="c",
-            delegation_id="d",
+            delegation_id="1",
             agent_private_key=str(key_file),
         )
         middleware = NuggetsAuthorityMiddleware(config)
@@ -1278,7 +1335,7 @@ class TestAgentProof:
             api_url="https://unreachable.invalid",
             agent_id="agent-test",
             controller_id="c",
-            delegation_id="d",
+            delegation_id="1",
             test_mode=True,
         )
         middleware = NuggetsAuthorityMiddleware(config)

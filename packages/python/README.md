@@ -77,7 +77,7 @@ To provision the agent identity, private key, and delegation referenced above, s
 
 ### Proof verification (on by default)
 
-Every `ALLOW` carries a proof signed by the authority, and the SDK **verifies it before the tool runs** — discovering the authority's signing identity from `{api_url}/.well-known/authority-configuration`, pinning the proof's issuer to that authority, verifying the signature against the published JWKS, and binding the proof to the request. Any failure fails **closed**: `DENY` with `reason_code = PROOF_VERIFICATION_FAILED`, tool not run. On by default — no config.
+Every `ALLOW` carries a proof signed by the authority, and the SDK **verifies it before the tool runs** — discovering the authority's signing identity from `{api_url}/.well-known/authority-configuration`, pinning the proof's issuer to that authority, verifying the signature against the published JWKS, and requiring its versioned RFC 8785 `action_context_hash` to match the SDK's independent hash of the exact requested action. The proof must also be addressed to the agent and carry a valid `iat`/`exp`/`jti`. Any failure fails **closed**: `DENY` with `reason_code = PROOF_VERIFICATION_FAILED`, tool not run. On by default — no config.
 
 Every decision is therefore **independently verifiable**. A third party can validate an emitted proof out-of-band:
 
@@ -85,14 +85,29 @@ Every decision is therefore **independently verifiable**. A third party can vali
 from langchain_nuggets.middleware import verify_authority_proof, discover_authority
 
 issuer, jwks_uri = discover_authority("https://accounts.nuggets.life")
-verify_authority_proof(proof_jws, expected={...}, issuer=issuer, jwks_uri=jwks_uri)
+verify_authority_proof(
+    proof_jws,
+    expected={
+        "decision": "ALLOW",
+        "agent_id": expected_agent_aid,
+        "controller_id": expected_controller_aid,
+        "aud": expected_agent_aid,
+        "action_context_version": 1,
+        "action_context_hash": independently_computed_action_hash,
+    },
+    issuer=issuer,
+    jwks_uri=jwks_uri,
+)
 ```
+
+For a v1 proof, `action_context_version`, `aud`, and `action_context_hash` are mandatory in
+`expected`; omitting any of them fails closed. Proofs declaring an unsupported version are rejected.
 
 Opt out only deliberately (e.g. an offline harness verifying proofs separately): `MiddlewareConfig(..., verify_proofs=False)`.
 
 ### Intent binding
 
-Set `intent_resolver` when the agent can identify why a tool call is being made. The SDK hashes the intent with the request parameters and timestamp, sends the `intent_hash` to the authority, and includes it in the emitted proof artifact.
+Set `intent_resolver` when the agent can identify why a tool call is being made. The SDK computes a stable, domain-separated RFC 8785 hash of the intent, sends the `intent_hash` to the authority, and includes it in the exact-action binding and emitted proof artifact. Transport nonce and timestamp are deliberately excluded so an approved action can be re-polled without changing its identity.
 
 ```python
 MiddlewareConfig(

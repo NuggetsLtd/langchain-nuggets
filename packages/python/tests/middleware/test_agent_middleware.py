@@ -22,7 +22,7 @@ def test_mode_config():
         api_url="https://api.nuggets.test",
         agent_id="agent-123",
         controller_id="org-456",
-        delegation_id="del-789",
+        delegation_id="789",
         test_mode=True,
     )
 
@@ -48,7 +48,7 @@ def live_config():
         oidc_issuer_url="https://auth.nuggets.test",
         agent_id="agent-123",
         controller_id="org-456",
-        delegation_id="del-789",
+        delegation_id="789",
         agent_private_key=private_pem,
         verify_proofs=False,
     )
@@ -90,7 +90,16 @@ def test_allow_delegates_to_handler(test_mode_config, mock_request):
     assert len(mw.proofs) == 1
 
 
-def test_deny_blocks_handler(live_config, mock_request):
+def test_deny_blocks_handler(live_config, mock_request, monkeypatch):
+    monkeypatch.setattr(
+        "langchain_nuggets.middleware.authority_middleware.discover_authority",
+        MagicMock(
+            return_value=(
+                "did:web:auth.nuggets.test:portalC1",
+                "https://api.nuggets.test/.well-known/jwks.json",
+            )
+        ),
+    )
     mw = NuggetsAuthorityAgentMiddleware(live_config)
     mw._mw._client = MagicMock()
     mw._mw._client.post.return_value = {

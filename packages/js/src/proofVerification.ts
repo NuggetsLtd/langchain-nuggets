@@ -137,19 +137,76 @@ async function verifyCore(
   if (candidates.length === 0) {
     throw new ProofVerificationError("no usable key in JWKS");
   }
+  const requireV1 =
+    claims.action_context_version === 1 || expected.action_context_version === 1;
 
   let lastError: unknown;
   for (const jwk of candidates) {
+    let key;
     try {
-      const key = await importJWK(jwk, "RS256");
-      const verified = await jwtVerify(signature, key, { algorithms: ["RS256"] });
-      bind(verified.payload, expected);
-      return verified.payload;
+      key = await importJWK(jwk, "RS256");
     } catch (exc) {
       lastError = exc;
+      continue;
     }
+    let verified;
+    try {
+      verified = await jwtVerify(signature, key, {
+        algorithms: ["RS256"],
+        issuer,
+        ...(typeof expected.aud === "string" ? { audience: expected.aud } : {}),
+        ...(requireV1 ? { requiredClaims: ["iat", "exp", "jti", "aud"] } : {})
+      });
+    } catch (exc) {
+      if (
+        typeof exc === "object" &&
+        exc !== null &&
+        "code" in exc &&
+        exc.code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED"
+      ) {
+        lastError = exc;
+        continue;
+      }
+      throw new ProofVerificationError(`proof claim validation failed: ${exc}`);
+    }
+    if (requireV1 &&
+      (typeof verified.payload.iat !== "number" ||
+        typeof verified.payload.exp !== "number" ||
+        verified.payload.exp <= verified.payload.iat)) {
+      throw new ProofVerificationError("proof has an invalid bounded lifetime");
+    }
+    validateActionContextContract(verified.payload, expected, requireV1);
+    bind(verified.payload, expected);
+    return verified.payload;
   }
   throw new ProofVerificationError(`proof signature verification failed: ${lastError}`);
+}
+
+function validateActionContextContract(
+  claims: JWTPayload,
+  expected: Record<string, unknown>,
+  requireV1: boolean
+): void {
+  for (const [source, version] of [
+    ["proof", claims.action_context_version],
+    ["expected", expected.action_context_version]
+  ] as const) {
+    if (version !== undefined && version !== 1) {
+      throw new ProofVerificationError(`unsupported ${source} action_context_version: ${String(version)}`);
+    }
+  }
+  if (!requireV1) return;
+  if (
+    expected.action_context_version !== 1 ||
+    typeof expected.aud !== "string" ||
+    expected.aud.length === 0 ||
+    typeof expected.action_context_hash !== "string" ||
+    expected.action_context_hash.length === 0
+  ) {
+    throw new ProofVerificationError(
+      "v1 proof verification requires expected action_context_version, aud, and action_context_hash"
+    );
+  }
 }
 
 function candidateKeys(keys: JWK[], kid?: string): JWK[] {
@@ -164,7 +221,15 @@ function candidateKeys(keys: JWK[], kid?: string): JWK[] {
 }
 
 function bind(claims: JWTPayload, expected: Record<string, unknown>): void {
-  for (const field of ["decision", "proof_id", "agent_id", "controller_id", "action_context_hash"]) {
+  for (const field of [
+    "decision",
+    "proof_id",
+    "agent_id",
+    "controller_id",
+    "aud",
+    "action_context_version",
+    "action_context_hash"
+  ]) {
     if (field in expected && claims[field] !== expected[field]) {
       throw new ProofVerificationError(
         `proof ${field} mismatch: proof=${String(claims[field])} expected=${String(expected[field])}`

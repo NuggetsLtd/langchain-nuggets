@@ -11,12 +11,15 @@ from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import ToolMessage
 
-from langchain_nuggets.middleware.agent_proof import load_private_key, sign_agent_proof
+from langchain_nuggets.middleware.action_context import (
+    compute_action_context_hash_v1,
+    hash_intent_v1,
+    hash_parameters_v1,
+)
+from langchain_nuggets.middleware.agent_proof import load_private_key, sign_agent_proof_v1
 from langchain_nuggets.middleware.oidc_client import OidcClientCredentialsClient
 from langchain_nuggets.middleware.proof import (
     build_proof_artifact,
-    hash_intent,
-    hash_parameters,
     hash_result,
 )
 from langchain_nuggets.middleware.proof_verification import (
@@ -178,13 +181,13 @@ class NuggetsAuthorityMiddleware:
         default_target = tool_args.get("target", tool_name) if isinstance(tool_args, dict) else tool_name
         target = extras.get("target") if extras and extras.get("target") else default_target
 
-        parameters_hash = hash_parameters(tool_args)
+        parameters_hash = hash_parameters_v1(tool_args)
         timestamp = datetime.now(timezone.utc).isoformat()
 
         # Compute intent hash if intent is available
         intent_hash = None
         if intent is not None:
-            intent_hash = hash_intent(intent, parameters_hash, timestamp)
+            intent_hash = hash_intent_v1(intent)
 
         return AuthorityEvaluationRequest(
             agent_id=self._config.agent_id,
@@ -292,12 +295,19 @@ class NuggetsAuthorityMiddleware:
         if self._on_proof is not None:
             self._on_proof(proof)
 
-    def _proof_expected(self, auth_response: AuthorityEvaluationResponse) -> Dict[str, Any]:
+    def _proof_expected(
+        self,
+        auth_response: AuthorityEvaluationResponse,
+        eval_request: AuthorityEvaluationRequest,
+    ) -> Dict[str, Any]:
         return {
             "decision": auth_response.decision,
             "proof_id": auth_response.proof_id,
             "agent_id": self._config.agent_id,
             "controller_id": self._config.controller_id,
+            "aud": self._config.agent_id,
+            "action_context_version": 1,
+            "action_context_hash": compute_action_context_hash_v1(eval_request),
             "constraints_evaluated": auth_response.constraints_evaluated,
         }
 
@@ -317,7 +327,11 @@ class NuggetsAuthorityMiddleware:
         return ToolMessage(content=content, tool_call_id=tool_call_id)
 
     def _verify_proof_or_none(
-        self, auth_response: AuthorityEvaluationResponse, tool_call_id: str, tool_name: str
+        self,
+        auth_response: AuthorityEvaluationResponse,
+        eval_request: AuthorityEvaluationRequest,
+        tool_call_id: str,
+        tool_name: str,
     ) -> Optional[ToolMessage]:
         """#161: verify the ALLOW proof (sync). Returns a DENY-shaped
         ToolMessage to short-circuit on failure, or None when trustworthy.
@@ -335,7 +349,7 @@ class NuggetsAuthorityMiddleware:
             )
             verify_authority_proof(
                 auth_response.signature,
-                expected=self._proof_expected(auth_response),
+                expected=self._proof_expected(auth_response, eval_request),
                 issuer=issuer,
                 jwks_uri=jwks_uri,
                 verify_ssl=self._config.verify_ssl,
@@ -346,7 +360,11 @@ class NuggetsAuthorityMiddleware:
             return self._proof_failure_message(exc, tool_call_id, tool_name, auth_response.proof_id)
 
     async def _averify_proof_or_none(
-        self, auth_response: AuthorityEvaluationResponse, tool_call_id: str, tool_name: str
+        self,
+        auth_response: AuthorityEvaluationResponse,
+        eval_request: AuthorityEvaluationRequest,
+        tool_call_id: str,
+        tool_name: str,
     ) -> Optional[ToolMessage]:
         """Async variant — discovers + fetches JWKS with httpx.AsyncClient so it
         doesn't block the event loop."""
@@ -360,7 +378,7 @@ class NuggetsAuthorityMiddleware:
             )
             await averify_authority_proof(
                 auth_response.signature,
-                expected=self._proof_expected(auth_response),
+                expected=self._proof_expected(auth_response, eval_request),
                 issuer=issuer,
                 jwks_uri=jwks_uri,
                 verify_ssl=self._config.verify_ssl,
@@ -414,11 +432,18 @@ class NuggetsAuthorityMiddleware:
                     "agent_private_key required when test_mode=False "
                     "(should be enforced by MiddlewareConfig)"
                 )
+                authority_issuer, _ = discover_authority(
+                    self._config.api_url,
+                    verify_ssl=self._config.verify_ssl,
+                    ca_cert=self._config.ca_cert,
+                )
                 payload = eval_request.model_dump()
-                payload["agent_proof"] = sign_agent_proof(
+                payload["agent_proof"] = sign_agent_proof_v1(
                     self._agent_private_key_pem,
-                    self._config.agent_id,
-                    eval_request.action.nonce,
+                    agent_id=self._config.agent_id,
+                    nonce=eval_request.action.nonce,
+                    audience=authority_issuer,
+                    action_context_hash=compute_action_context_hash_v1(eval_request),
                 )
                 if self._client is None:
                     raise RuntimeError("OIDC client unavailable in non-test-mode middleware")
@@ -446,7 +471,9 @@ class NuggetsAuthorityMiddleware:
             return self._make_deny_message(tool_call_id, tool_name, auth_response)
 
         # Verify the signed decision for BOTH ALLOW and ESCALATE before acting.
-        proof_failure = self._verify_proof_or_none(auth_response, tool_call_id, tool_name)
+        proof_failure = self._verify_proof_or_none(
+            auth_response, eval_request, tool_call_id, tool_name
+        )
         if proof_failure is not None:
             return proof_failure
 
@@ -506,11 +533,18 @@ class NuggetsAuthorityMiddleware:
                     "agent_private_key required when test_mode=False "
                     "(should be enforced by MiddlewareConfig)"
                 )
+                authority_issuer, _ = await adiscover_authority(
+                    self._config.api_url,
+                    verify_ssl=self._config.verify_ssl,
+                    ca_cert=self._config.ca_cert,
+                )
                 payload = eval_request.model_dump()
-                payload["agent_proof"] = sign_agent_proof(
+                payload["agent_proof"] = sign_agent_proof_v1(
                     self._agent_private_key_pem,
-                    self._config.agent_id,
-                    eval_request.action.nonce,
+                    agent_id=self._config.agent_id,
+                    nonce=eval_request.action.nonce,
+                    audience=authority_issuer,
+                    action_context_hash=compute_action_context_hash_v1(eval_request),
                 )
                 if self._client is None:
                     raise RuntimeError("OIDC client unavailable in non-test-mode middleware")
@@ -538,7 +572,9 @@ class NuggetsAuthorityMiddleware:
             return self._make_deny_message(tool_call_id, tool_name, auth_response)
 
         # Verify the signed decision for BOTH ALLOW and ESCALATE before acting.
-        proof_failure = await self._averify_proof_or_none(auth_response, tool_call_id, tool_name)
+        proof_failure = await self._averify_proof_or_none(
+            auth_response, eval_request, tool_call_id, tool_name
+        )
         if proof_failure is not None:
             return proof_failure
 

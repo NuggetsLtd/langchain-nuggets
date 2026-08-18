@@ -12,6 +12,7 @@ import type { JWK } from "jose";
 import { ToolMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NuggetsAuthorityMiddleware } from "../src/authorityMiddleware.js";
+import { computeActionContextHashV1, hashParametersV1 } from "../src/actionContext.js";
 import { resetProofVerificationCaches } from "../src/proofVerification.js";
 import { MiddlewareConfig } from "../src/types.js";
 import type { MiddlewareConfigInput } from "../src/types.js";
@@ -26,7 +27,7 @@ function makeConfig(overrides: Partial<MiddlewareConfigInput> = {}): MiddlewareC
     oidcIssuerUrl: "https://auth.nuggets.test",
     agentId: "agent-123",
     controllerId: "org-456",
-    delegationId: "del-789",
+    delegationId: "789",
     agentPrivateKey: agentPem,
     verifyProofs: false,
     ...overrides
@@ -64,7 +65,16 @@ function withClient(mw: NuggetsAuthorityMiddleware, post: ReturnType<typeof vi.f
   (mw as unknown as { client: { post: typeof post } }).client = { post };
 }
 
-beforeEach(() => resetProofVerificationCaches());
+beforeEach(() => {
+  resetProofVerificationCaches();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify({
+      issuer: "did:web:auth.nuggets.test:portalC1",
+      jwks_uri: "https://api.nuggets.test/.well-known/jwks.json"
+    }), { status: 200 }))
+  );
+});
 afterEach(() => {
   vi.unstubAllGlobals();
   resetProofVerificationCaches();
@@ -206,8 +216,7 @@ describe("request payload", () => {
     withClient(mw, post);
     await mw.wrapToolCall(request(), handler());
 
-    const { createHash } = await import("node:crypto");
-    const expectedHash = createHash("sha256").update('{"amount":100,"target":"stripe"}', "utf8").digest("hex");
+    const expectedHash = hashParametersV1({ amount: 100, target: "stripe" });
     expect(post.mock.calls[0][1].action.parameters_hash).toBe(expectedHash);
   });
 
@@ -250,6 +259,12 @@ describe("agent_proof", () => {
     const { payload: decoded } = await jwtVerify(payload.agent_proof, agentPublicKey);
     expect(decoded.agent_id).toBe("agent-123");
     expect(decoded.nonce).toBe(payload.action.nonce);
+    expect(decoded.aud).toBe("did:web:auth.nuggets.test:portalC1");
+    expect(decoded.jti).toEqual(expect.any(String));
+    expect(decoded.action_context_version).toBe(1);
+    expect(decoded.action_context_hash).toBe(
+      computeActionContextHashV1(payload as Parameters<typeof computeActionContextHashV1>[0])
+    );
     expect(decoded.exp!).toBeGreaterThan(decoded.iat!);
   });
 
@@ -286,7 +301,6 @@ describe("agent_proof", () => {
 
 describe("proof verification (default on, fails closed)", () => {
   it("downgrades an ALLOW with an unverifiable signature to PROOF_VERIFICATION_FAILED", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("no network"); }));
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ verifyProofs: true }));
     withClient(mw, allowPost());
     const h = handler();
@@ -304,16 +318,27 @@ describe("proof verification (default on, fails closed)", () => {
     const portal = await generateKeyPair("RS256", { extractable: true });
     const portalJwk: JWK = { ...(await exportJWK(portal.publicKey)), kid: "portal-k1", alg: "RS256" };
     const issuer = "did:web:auth.nuggets.test:portalC1";
+    const actionContextHash = computeActionContextHashV1(
+      new NuggetsAuthorityMiddleware(makeConfig()).buildEvalRequest(
+        "external_api_call",
+        { target: "stripe", amount: 100 }
+      )
+    );
     const proofJws = await new SignJWT({
       proof_id: "proof-real",
       agent_id: "agent-123",
       controller_id: "org-456",
       constraints_evaluated: ["tool_allowed"],
       decision: "ALLOW",
-      iss: issuer
+      action_context_version: 1,
+      action_context_hash: actionContextHash
     })
       .setProtectedHeader({ alg: "RS256", kid: "portal-k1" })
+      .setIssuer(issuer)
+      .setAudience("agent-123")
+      .setJti("proof-real")
       .setIssuedAt()
+      .setExpirationTime("5m")
       .sign(portal.privateKey);
 
     vi.stubGlobal(
@@ -617,7 +642,6 @@ describe("ESCALATE decision", () => {
   });
 
   it("fails closed (PROOF_VERIFICATION_FAILED) on ESCALATE with an unverifiable signature", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("no network"); }));
     const mw = new NuggetsAuthorityMiddleware(makeConfig({ verifyProofs: true }));
     withClient(mw, vi.fn(async () => escalateResponse()));
     const h = handler();
@@ -632,16 +656,27 @@ describe("ESCALATE decision", () => {
     const portal = await generateKeyPair("RS256", { extractable: true });
     const portalJwk: JWK = { ...(await exportJWK(portal.publicKey)), kid: "portal-k1", alg: "RS256" };
     const issuer = "did:web:auth.nuggets.test:portalC1";
+    const actionContextHash = computeActionContextHashV1(
+      new NuggetsAuthorityMiddleware(makeConfig()).buildEvalRequest(
+        "external_api_call",
+        { target: "stripe", amount: 100 }
+      )
+    );
     const proofJws = await new SignJWT({
       proof_id: "proof-real",
       agent_id: "agent-123",
       controller_id: "org-456",
       constraints_evaluated: ["tool_allowed"],
       decision: "ESCALATE",
-      iss: issuer
+      action_context_version: 1,
+      action_context_hash: actionContextHash
     })
       .setProtectedHeader({ alg: "RS256", kid: "portal-k1" })
+      .setIssuer(issuer)
+      .setAudience("agent-123")
+      .setJti("proof-real")
       .setIssuedAt()
+      .setExpirationTime("5m")
       .sign(portal.privateKey);
 
     vi.stubGlobal(

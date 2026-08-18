@@ -9,6 +9,8 @@ TypeScript Authority middleware for LangChain.js / LangGraph.js.
 
 This package is a JS/TS port of the Python `langchain-nuggets` Authority middleware. It checks each tool call with the Nuggets Authority endpoint before execution, fails closed on `DENY` or verification errors, and emits signed proof artifacts for allowed actions.
 
+Every non-test request carries an agent-signed, versioned RFC 8785 hash of the exact tool action. The authority's signed response must return that same locally recomputed hash, the agent audience, and a valid bounded lifetime before the wrapped tool can execute. `delegationId` must be a canonical positive decimal row ID such as `"42"`.
+
 ```bash
 npm install @nuggetslife/langchain-nuggets
 ```

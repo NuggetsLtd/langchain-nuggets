@@ -1,4 +1,12 @@
-export { loadPrivateKey, signAgentProof } from "./agentProof.js";
+export { loadPrivateKey, signAgentProof, signAgentProofV1 } from "./agentProof.js";
+export {
+  ACTION_CONTEXT_VERSION_V1,
+  assertCanonicalDelegationId,
+  buildActionContextPreimageV1,
+  computeActionContextHashV1,
+  hashIntentV1,
+  hashParametersV1
+} from "./actionContext.js";
 export { NuggetsAuthorityMiddleware } from "./authorityMiddleware.js";
 export { extractOidcClientId, OidcClientCredentialsClient, OidcTokenError } from "./oidcClient.js";
 export {

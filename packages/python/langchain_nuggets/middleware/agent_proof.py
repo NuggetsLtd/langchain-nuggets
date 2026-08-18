@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Union
 
@@ -105,5 +106,28 @@ def sign_agent_proof(private_key_pem: str, agent_id: str, nonce: str) -> str:
         "nonce": nonce,
         "iat": now,
         "exp": now + _PROOF_TTL_SECONDS,
+    }
+    return jwt.encode(payload, private_key_pem, algorithm="RS256")
+
+
+def sign_agent_proof_v1(
+    private_key_pem: str,
+    *,
+    agent_id: str,
+    nonce: str,
+    audience: str,
+    action_context_hash: str,
+) -> str:
+    """Sign a fresh v1 action-bound RS256 agent proof."""
+    now = int(time.time())
+    payload = {
+        "agent_id": agent_id,
+        "nonce": nonce,
+        "action_context_version": 1,
+        "action_context_hash": action_context_hash,
+        "aud": audience,
+        "iat": now,
+        "exp": now + _PROOF_TTL_SECONDS,
+        "jti": str(uuid.uuid4()),
     }
     return jwt.encode(payload, private_key_pem, algorithm="RS256")

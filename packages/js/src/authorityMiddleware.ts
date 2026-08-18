@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { ToolMessage } from "@langchain/core/messages";
-import { loadPrivateKey, signAgentProof } from "./agentProof.js";
+import { computeActionContextHashV1, hashIntentV1, hashParametersV1 } from "./actionContext.js";
+import { loadPrivateKey, signAgentProofV1 } from "./agentProof.js";
 import { extractOidcClientId, OidcClientCredentialsClient } from "./oidcClient.js";
 import {
   buildProofArtifact,
-  hashIntent,
-  hashParameters,
   hashResult
 } from "./proof.js";
 import {
@@ -64,9 +63,16 @@ export class NuggetsAuthorityMiddleware {
     } else {
       try {
         const privateKey = await this.getPrivateKey();
+        const [authorityIssuer] = await discoverAuthority(this.config.apiUrl);
+        const actionContextHash = computeActionContextHashV1(evalRequest);
         const payload: AuthorityEvaluationRequest = {
           ...evalRequest,
-          agent_proof: await signAgentProof(privateKey, this.config.agentId, evalRequest.action.nonce)
+          agent_proof: await signAgentProofV1(privateKey, {
+            agentId: this.config.agentId,
+            nonce: evalRequest.action.nonce,
+            audience: authorityIssuer,
+            actionContextHash
+          })
         };
         const client = await this.getClient();
         const rawResponse = await client.post(
@@ -85,7 +91,12 @@ export class NuggetsAuthorityMiddleware {
     }
 
     // Verify the signed decision for BOTH ALLOW and ESCALATE before acting on it.
-    const proofFailure = await this.verifyProofOrNull(authResponse, toolCallId, toolName);
+    const proofFailure = await this.verifyProofOrNull(
+      authResponse,
+      evalRequest,
+      toolCallId,
+      toolName
+    );
     if (proofFailure) {
       return proofFailure;
     }
@@ -133,9 +144,9 @@ export class NuggetsAuthorityMiddleware {
     const intent = this.config.intentResolver?.(toolName, toolArgs) ?? null;
     const extras = validateActionContextExtras(this.config.actionContextResolver?.(toolName, toolArgs));
     const defaultTarget = typeof toolArgs.target === "undefined" ? toolName : String(toolArgs.target);
-    const parametersHash = hashParameters(toolArgs);
+    const parametersHash = hashParametersV1(toolArgs);
     const timestamp = new Date().toISOString();
-    const intentHash = intent === null ? null : hashIntent(intent, parametersHash, timestamp);
+    const intentHash = intent === null ? null : hashIntentV1(intent);
     const action: ActionContext = {
       tool: toolName,
       target: extras?.target ?? defaultTarget,
@@ -182,6 +193,7 @@ export class NuggetsAuthorityMiddleware {
 
   private async verifyProofOrNull(
     authResponse: AuthorityEvaluationResponse,
+    evalRequest: AuthorityEvaluationRequest,
     toolCallId: string,
     toolName: string
   ): Promise<ToolMessage | null> {
@@ -197,6 +209,9 @@ export class NuggetsAuthorityMiddleware {
           proof_id: authResponse.proof_id,
           agent_id: this.config.agentId,
           controller_id: this.config.controllerId,
+          aud: this.config.agentId,
+          action_context_version: 1,
+          action_context_hash: computeActionContextHashV1(evalRequest),
           constraints_evaluated: authResponse.constraints_evaluated ?? []
         },
         issuer,
