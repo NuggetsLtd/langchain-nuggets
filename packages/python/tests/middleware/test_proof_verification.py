@@ -7,6 +7,7 @@ verifies the JWS signature against the keys at `jwks_uri`. Closes RT-P1: an
 attacker's proof is rejected at the issuer pin (foreign iss) and/or because its
 key isn't at the discovered jwks_uri.
 """
+
 import json
 import time
 
@@ -97,6 +98,7 @@ def _verify(sig, **kw):
 
 # --- discovery ------------------------------------------------------------
 
+
 @respx.mock
 def test_discover_authority_returns_issuer_and_jwks(portal_key):
     respx.get(DISCOVERY_URI).mock(
@@ -129,7 +131,9 @@ def test_discover_rejects_offhost_jwks_uri():
     # SSRF guard: the discovery doc must not point verification at a foreign
     # JWKS origin. jwks_uri must share scheme+host with the discovery URL.
     respx.get(DISCOVERY_URI).mock(
-        return_value=Response(200, json={"issuer": ISSUER, "jwks_uri": "https://evil.test/jwks.json"})
+        return_value=Response(
+            200, json={"issuer": ISSUER, "jwks_uri": "https://evil.test/jwks.json"}
+        )
     )
     with pytest.raises(ProofVerificationError, match="jwks_uri host"):
         discover_authority(API_URL)
@@ -166,6 +170,7 @@ def test_jwks_all_non_dict_keys_clean_error(portal_key):
 
 
 # --- verification ---------------------------------------------------------
+
 
 @respx.mock
 def test_valid_proof_verifies(portal_key):
@@ -206,7 +211,7 @@ def test_v1_requires_and_binds_complete_action_proof(portal_key):
             "action_context_hash": action_hash,
         },
     )
-    with pytest.raises(ProofVerificationError):
+    with pytest.raises(ProofVerificationError, match="proof claim validation failed.*exp"):
         _verify(missing_expiry, expected=expected)
 
     _reset_caches()
@@ -318,6 +323,35 @@ async def test_async_issuer_mismatch_rejected(portal_key):
     respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
     sig = _sign_proof(portal_key["priv"], {"iss": "did:web:attacker.test:evil"})
     with pytest.raises(ProofVerificationError, match="issuer mismatch"):
-        await averify_authority_proof(
-            sig, expected=_expected(), issuer=ISSUER, jwks_uri=JWKS_URI
+        await averify_authority_proof(sig, expected=_expected(), issuer=ISSUER, jwks_uri=JWKS_URI)
+
+
+@respx.mock
+def test_v1_claim_failure_survives_key_rotation_fallback(portal_key):
+    unrelated = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    unrelated_jwk = json.loads(RSAAlgorithm.to_jwk(unrelated.public_key()))
+    unrelated_jwk.update({"kid": "unrelated-key", "alg": "RS256"})
+    respx.get(JWKS_URI).mock(
+        return_value=Response(200, json=_jwks(unrelated_jwk, portal_key["public_jwk"]))
+    )
+    action_hash = "a" * 64
+    proof = _sign_proof(
+        portal_key["priv"],
+        {
+            "aud": "did:web:auth-dev.test:agent1",
+            "jti": "proof-1",
+            "action_context_version": 1,
+            "action_context_hash": action_hash,
+        },
+        kid=None,
+    )
+
+    with pytest.raises(ProofVerificationError, match="proof claim validation failed.*exp"):
+        _verify(
+            proof,
+            expected=_expected(
+                aud="did:web:auth-dev.test:agent1",
+                action_context_version=1,
+                action_context_hash=action_hash,
+            ),
         )

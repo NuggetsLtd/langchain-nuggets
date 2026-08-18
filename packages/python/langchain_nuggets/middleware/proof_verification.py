@@ -20,6 +20,7 @@ rejected at the issuer pin (foreign `iss`) and/or because its key isn't at the
 discovered `jwks_uri`. A third party can verify an emitted proof out-of-band by
 discovering the same endpoint (or supplying the known `issuer` + `jwks_uri`).
 """
+
 from __future__ import annotations
 
 import json
@@ -29,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 import jwt
 from jwt.algorithms import RSAAlgorithm
+from jwt.exceptions import InvalidSignatureError, PyJWTError
 
 
 class ProofVerificationError(Exception):
@@ -37,7 +39,9 @@ class ProofVerificationError(Exception):
 
 _CACHE_TTL_SECONDS = 300
 # Small TTL caches so we don't refetch discovery / JWKS on every ALLOW.
-_discovery_cache: Dict[str, Tuple[Tuple[str, str], float]] = {}  # api_url -> ((issuer, jwks_uri), t)
+_discovery_cache: Dict[
+    str, Tuple[Tuple[str, str], float]
+] = {}  # api_url -> ((issuer, jwks_uri), t)
 _jwks_cache: Dict[str, Tuple[List[Dict[str, Any]], float]] = {}  # jwks_uri -> (keys, t)
 
 
@@ -61,6 +65,7 @@ def _fresh(entry, ttl: float = _CACHE_TTL_SECONDS) -> bool:
 
 
 # --- discovery ------------------------------------------------------------
+
 
 def _discovery_url(api_url: str) -> str:
     return f"{api_url.rstrip('/')}/.well-known/authority-configuration"
@@ -147,6 +152,7 @@ async def adiscover_authority(
 
 # --- jwks fetch + verification --------------------------------------------
 
+
 def _keys_from_response(resp: httpx.Response, jwks_uri: str) -> List[Dict[str, Any]]:
     if resp.status_code != 200:
         raise ProofVerificationError(f"JWKS fetch failed ({resp.status_code}) for {jwks_uri}")
@@ -214,6 +220,10 @@ def _verify_signature_against_keys(
     for jwk in candidates:
         try:
             public_key = RSAAlgorithm.from_jwk(json.dumps(jwk))
+        except Exception as exc:
+            last_err = exc
+            continue
+        try:
             v1 = expected.get("action_context_version") == 1
             options: Dict[str, Any] = {}
             kwargs: Dict[str, Any] = {"issuer": issuer}
@@ -230,20 +240,21 @@ def _verify_signature_against_keys(
                 options=options,
                 **kwargs,
             )
-            if v1 and (
-                not isinstance(claims.get("iat"), (int, float))
-                or isinstance(claims.get("iat"), bool)
-                or not isinstance(claims.get("exp"), (int, float))
-                or isinstance(claims.get("exp"), bool)
-                or claims["exp"] <= claims["iat"]
-            ):
-                raise ProofVerificationError("proof has an invalid bounded lifetime")
-            return claims
-        except Exception as exc:  # try the next published key
+        except InvalidSignatureError as exc:  # try the next published key
             last_err = exc
-    raise ProofVerificationError(
-        f"proof signature verification failed: {last_err}"
-    ) from last_err
+            continue
+        except PyJWTError as exc:
+            raise ProofVerificationError(f"proof claim validation failed: {exc}") from exc
+        if v1 and (
+            not isinstance(claims.get("iat"), (int, float))
+            or isinstance(claims.get("iat"), bool)
+            or not isinstance(claims.get("exp"), (int, float))
+            or isinstance(claims.get("exp"), bool)
+            or claims["exp"] <= claims["iat"]
+        ):
+            raise ProofVerificationError("proof has an invalid bounded lifetime")
+        return claims
+    raise ProofVerificationError(f"proof signature verification failed: {last_err}") from last_err
 
 
 def _verify_core(

@@ -140,26 +140,42 @@ async function verifyCore(
 
   let lastError: unknown;
   for (const jwk of candidates) {
+    let key;
     try {
-      const key = await importJWK(jwk, "RS256");
-      const v1 = expected.action_context_version === 1;
-      const verified = await jwtVerify(signature, key, {
+      key = await importJWK(jwk, "RS256");
+    } catch (exc) {
+      lastError = exc;
+      continue;
+    }
+    const v1 = expected.action_context_version === 1;
+    let verified;
+    try {
+      verified = await jwtVerify(signature, key, {
         algorithms: ["RS256"],
         issuer,
         ...(typeof expected.aud === "string" ? { audience: expected.aud } : {}),
         ...(v1 ? { requiredClaims: ["iat", "exp", "jti", "aud"] } : {})
       });
-      if (v1 &&
-        (typeof verified.payload.iat !== "number" ||
-          typeof verified.payload.exp !== "number" ||
-          verified.payload.exp <= verified.payload.iat)) {
-        throw new ProofVerificationError("proof has an invalid bounded lifetime");
-      }
-      bind(verified.payload, expected);
-      return verified.payload;
     } catch (exc) {
-      lastError = exc;
+      if (
+        typeof exc === "object" &&
+        exc !== null &&
+        "code" in exc &&
+        exc.code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED"
+      ) {
+        lastError = exc;
+        continue;
+      }
+      throw new ProofVerificationError(`proof claim validation failed: ${exc}`);
     }
+    if (v1 &&
+      (typeof verified.payload.iat !== "number" ||
+        typeof verified.payload.exp !== "number" ||
+        verified.payload.exp <= verified.payload.iat)) {
+      throw new ProofVerificationError("proof has an invalid bounded lifetime");
+    }
+    bind(verified.payload, expected);
+    return verified.payload;
   }
   throw new ProofVerificationError(`proof signature verification failed: ${lastError}`);
 }

@@ -144,12 +144,44 @@ describe("verifyAuthorityProof", () => {
       action_context_version: 1,
       action_context_hash: actionHash
     });
-    await expect(verify(missingExpiry, v1Expected, fetchImpl)).rejects.toThrow();
+    await expect(verify(missingExpiry, v1Expected, fetchImpl)).rejects.toThrow(
+      /proof claim validation failed.*exp/
+    );
 
     resetProofVerificationCaches();
     await expect(
       verify(valid, { ...v1Expected, action_context_hash: "b".repeat(64) }, fetchImpl)
     ).rejects.toThrow(/action_context_hash mismatch/);
+  });
+
+  it("preserves v1 claim failures after trying a rotated key", async () => {
+    const unrelated = await generateKeyPair("RS256", { extractable: true });
+    const unrelatedJwk: JWK = {
+      ...(await exportJWK(unrelated.publicKey)),
+      kid: "unrelated-key",
+      alg: "RS256"
+    };
+    const actionHash = "a".repeat(64);
+    const v1Expected = expected({
+      aud: "did:web:auth-dev.test:agent1",
+      action_context_version: 1,
+      action_context_hash: actionHash
+    });
+    const { fetchImpl } = singleRoute(JWKS_URI, () => jwks(unrelatedJwk, portalPublicJwk));
+    const missingExpiry = await signProof(
+      portal.privateKey as SigningKey,
+      {
+        aud: "did:web:auth-dev.test:agent1",
+        jti: "proof-1",
+        action_context_version: 1,
+        action_context_hash: actionHash
+      },
+      null
+    );
+
+    await expect(verify(missingExpiry, v1Expected, fetchImpl)).rejects.toThrow(
+      /proof claim validation failed.*exp/
+    );
   });
 
   it("rejects an issuer mismatch even when signed with the real key", async () => {
