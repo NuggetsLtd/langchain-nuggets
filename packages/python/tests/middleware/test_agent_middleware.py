@@ -22,7 +22,7 @@ def test_mode_config():
         api_url="https://api.nuggets.test",
         agent_id="agent-123",
         controller_id="org-456",
-        delegation_id="del-789",
+        delegation_id="789",
         test_mode=True,
     )
 
@@ -48,7 +48,7 @@ def live_config():
         oidc_issuer_url="https://auth.nuggets.test",
         agent_id="agent-123",
         controller_id="org-456",
-        delegation_id="del-789",
+        delegation_id="789",
         agent_private_key=private_pem,
         verify_proofs=False,
     )
