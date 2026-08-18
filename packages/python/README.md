@@ -85,8 +85,23 @@ Every decision is therefore **independently verifiable**. A third party can vali
 from langchain_nuggets.middleware import verify_authority_proof, discover_authority
 
 issuer, jwks_uri = discover_authority("https://accounts.nuggets.life")
-verify_authority_proof(proof_jws, expected={...}, issuer=issuer, jwks_uri=jwks_uri)
+verify_authority_proof(
+    proof_jws,
+    expected={
+        "decision": "ALLOW",
+        "agent_id": expected_agent_aid,
+        "controller_id": expected_controller_aid,
+        "aud": expected_agent_aid,
+        "action_context_version": 1,
+        "action_context_hash": independently_computed_action_hash,
+    },
+    issuer=issuer,
+    jwks_uri=jwks_uri,
+)
 ```
+
+For a v1 proof, `action_context_version`, `aud`, and `action_context_hash` are mandatory in
+`expected`; omitting any of them fails closed. Proofs declaring an unsupported version are rejected.
 
 Opt out only deliberately (e.g. an offline harness verifying proofs separately): `MiddlewareConfig(..., verify_proofs=False)`.
 

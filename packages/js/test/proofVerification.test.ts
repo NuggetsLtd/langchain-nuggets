@@ -149,9 +149,27 @@ describe("verifyAuthorityProof", () => {
     );
 
     resetProofVerificationCaches();
+    await expect(verify(missingExpiry, expected(), fetchImpl)).rejects.toThrow(
+      /proof claim validation failed.*exp/
+    );
+
+    resetProofVerificationCaches();
+    await expect(verify(valid, expected(), fetchImpl)).rejects.toThrow(
+      /v1 proof verification requires expected/
+    );
+
+    resetProofVerificationCaches();
     await expect(
       verify(valid, { ...v1Expected, action_context_hash: "b".repeat(64) }, fetchImpl)
     ).rejects.toThrow(/action_context_hash mismatch/);
+
+    resetProofVerificationCaches();
+    const unsupported = await signProof(portal.privateKey as SigningKey, {
+      action_context_version: 2
+    });
+    await expect(verify(unsupported, expected(), fetchImpl)).rejects.toThrow(
+      /unsupported proof action_context_version/
+    );
   });
 
   it("preserves v1 claim failures after trying a rotated key", async () => {

@@ -215,8 +215,21 @@ def test_v1_requires_and_binds_complete_action_proof(portal_key):
         _verify(missing_expiry, expected=expected)
 
     _reset_caches()
+    with pytest.raises(ProofVerificationError, match="proof claim validation failed.*exp"):
+        _verify(missing_expiry)
+
+    _reset_caches()
+    with pytest.raises(ProofVerificationError, match="v1 proof verification requires expected"):
+        _verify(valid)
+
+    _reset_caches()
     with pytest.raises(ProofVerificationError, match="action_context_hash mismatch"):
         _verify(valid, expected={**expected, "action_context_hash": "b" * 64})
+
+    _reset_caches()
+    unsupported = _sign_proof(portal_key["priv"], {"action_context_version": 2})
+    with pytest.raises(ProofVerificationError, match="unsupported proof action_context_version"):
+        _verify(unsupported)
 
 
 @respx.mock

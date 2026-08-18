@@ -137,6 +137,8 @@ async function verifyCore(
   if (candidates.length === 0) {
     throw new ProofVerificationError("no usable key in JWKS");
   }
+  const requireV1 =
+    claims.action_context_version === 1 || expected.action_context_version === 1;
 
   let lastError: unknown;
   for (const jwk of candidates) {
@@ -147,14 +149,13 @@ async function verifyCore(
       lastError = exc;
       continue;
     }
-    const v1 = expected.action_context_version === 1;
     let verified;
     try {
       verified = await jwtVerify(signature, key, {
         algorithms: ["RS256"],
         issuer,
         ...(typeof expected.aud === "string" ? { audience: expected.aud } : {}),
-        ...(v1 ? { requiredClaims: ["iat", "exp", "jti", "aud"] } : {})
+        ...(requireV1 ? { requiredClaims: ["iat", "exp", "jti", "aud"] } : {})
       });
     } catch (exc) {
       if (
@@ -168,16 +169,44 @@ async function verifyCore(
       }
       throw new ProofVerificationError(`proof claim validation failed: ${exc}`);
     }
-    if (v1 &&
+    if (requireV1 &&
       (typeof verified.payload.iat !== "number" ||
         typeof verified.payload.exp !== "number" ||
         verified.payload.exp <= verified.payload.iat)) {
       throw new ProofVerificationError("proof has an invalid bounded lifetime");
     }
+    validateActionContextContract(verified.payload, expected, requireV1);
     bind(verified.payload, expected);
     return verified.payload;
   }
   throw new ProofVerificationError(`proof signature verification failed: ${lastError}`);
+}
+
+function validateActionContextContract(
+  claims: JWTPayload,
+  expected: Record<string, unknown>,
+  requireV1: boolean
+): void {
+  for (const [source, version] of [
+    ["proof", claims.action_context_version],
+    ["expected", expected.action_context_version]
+  ] as const) {
+    if (version !== undefined && version !== 1) {
+      throw new ProofVerificationError(`unsupported ${source} action_context_version: ${String(version)}`);
+    }
+  }
+  if (!requireV1) return;
+  if (
+    expected.action_context_version !== 1 ||
+    typeof expected.aud !== "string" ||
+    expected.aud.length === 0 ||
+    typeof expected.action_context_hash !== "string" ||
+    expected.action_context_hash.length === 0
+  ) {
+    throw new ProofVerificationError(
+      "v1 proof verification requires expected action_context_version, aud, and action_context_hash"
+    );
+  }
 }
 
 function candidateKeys(keys: JWK[], kid?: string): JWK[] {
