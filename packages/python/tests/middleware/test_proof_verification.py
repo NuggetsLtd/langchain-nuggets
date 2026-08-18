@@ -176,6 +176,45 @@ def test_valid_proof_verifies(portal_key):
 
 
 @respx.mock
+def test_v1_requires_and_binds_complete_action_proof(portal_key):
+    action_hash = "a" * 64
+    expected = _expected(
+        aud="did:web:auth-dev.test:agent1",
+        action_context_version=1,
+        action_context_hash=action_hash,
+    )
+    respx.get(JWKS_URI).mock(return_value=Response(200, json=_jwks(portal_key["public_jwk"])))
+    valid = _sign_proof(
+        portal_key["priv"],
+        {
+            "aud": "did:web:auth-dev.test:agent1",
+            "jti": "proof-1",
+            "exp": int(time.time()) + 300,
+            "action_context_version": 1,
+            "action_context_hash": action_hash,
+        },
+    )
+    assert _verify(valid, expected=expected)["action_context_hash"] == action_hash
+
+    _reset_caches()
+    missing_expiry = _sign_proof(
+        portal_key["priv"],
+        {
+            "aud": "did:web:auth-dev.test:agent1",
+            "jti": "proof-1",
+            "action_context_version": 1,
+            "action_context_hash": action_hash,
+        },
+    )
+    with pytest.raises(ProofVerificationError):
+        _verify(missing_expiry, expected=expected)
+
+    _reset_caches()
+    with pytest.raises(ProofVerificationError, match="action_context_hash mismatch"):
+        _verify(valid, expected={**expected, "action_context_hash": "b" * 64})
+
+
+@respx.mock
 def test_issuer_mismatch_rejected_even_with_valid_key(portal_key):
     # C3b: signed by the REAL portal key, but the proof's iss has been tampered.
     # Pin must reject it before/independent of the signature being valid.

@@ -1,6 +1,11 @@
 """Nuggets Authority Middleware for LangChain/LangGraph tool call interception."""
 from typing import Any
 
+from langchain_nuggets.middleware.action_context import (
+    compute_action_context_hash_v1,
+    hash_intent_v1,
+    hash_parameters_v1,
+)
 from langchain_nuggets.middleware.authority_middleware import NuggetsAuthorityMiddleware
 from langchain_nuggets.middleware.proof import build_proof_artifact, hash_parameters, hash_result
 from langchain_nuggets.middleware.proof_verification import (
@@ -21,6 +26,9 @@ from langchain_nuggets.middleware.types import (
 
 __all__ = [
     "NuggetsAuthorityMiddleware",
+    "compute_action_context_hash_v1",
+    "hash_intent_v1",
+    "hash_parameters_v1",
     "MiddlewareConfig",
     "ActionContext",
     "AuthorityDecision",

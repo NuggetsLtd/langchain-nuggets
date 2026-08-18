@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Security
+
+- **Authority requests and decisions are now bound to the exact action (issue #57).** Both SDKs compute the versioned `action_context_hash` using RFC 8785 JCS and domain-separated SHA-256 over the tool, target, parameters hash, optional intent/payment fields, agent, controller, and canonical delegation ID. The agent signs that hash with the request nonce, authority audience, `iat`/`exp`, and `jti`; the SDK independently recomputes and requires the same hash in the authority's signed decision before a tool can run.
+- Parameter and intent hashes now use their own domain-separated RFC 8785 v1 constructions. JS pins `canonicalize@3.0.0`; Python pins `rfc8785==0.1.4`. Frozen partner#958 vectors are exercised in both language suites, including Unicode, decimals, zero-value fields, and canonical delegation IDs.
+
+### Migration
+
+- Non-test authority calls now require `delegation_id` / `delegationId` to be the canonical decimal string of a positive safe integer (for example `"42"`). Token-only and alternate spellings such as `"042"` cannot produce a v1-bound proof.
+- The authority deployment must support action-context v1 before this SDK release is used. Legacy parameter/intent hashing helpers remain exported for artifact compatibility, but middleware requests use the v1 constructions.
+
 ## [1.2.0]
 
 LangGraph OIDC audience enforcement, now that the issuer defines a resource-server `aud` contract (partner#952). Minor bump — the audience default is a breaking change for the LangGraph auth path (see Migration).

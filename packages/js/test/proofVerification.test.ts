@@ -61,7 +61,7 @@ function singleRoute(url: string, respond: () => Response) {
   return { fetchImpl, calls: () => count };
 }
 
-const verify = (sig: string, exp = expected(), fetchImpl?: typeof fetch) =>
+const verify = (sig: string, exp: Record<string, unknown> = expected(), fetchImpl?: typeof fetch) =>
   verifyAuthorityProof({ signature: sig, expected: exp, issuer: ISSUER, jwksUri: JWKS_URI, fetchImpl });
 
 beforeEach(() => resetProofVerificationCaches());
@@ -117,6 +117,39 @@ describe("verifyAuthorityProof", () => {
     const claims = await verify(await signProof(portal.privateKey as SigningKey), expected(), fetchImpl);
     expect(claims.proof_id).toBe("proof-1");
     expect(claims.decision).toBe("ALLOW");
+  });
+
+  it("requires and binds the complete v1 action-proof envelope", async () => {
+    const actionHash = "a".repeat(64);
+    const now = Math.floor(Date.now() / 1000);
+    const v1Expected = expected({
+      aud: "did:web:auth-dev.test:agent1",
+      action_context_version: 1,
+      action_context_hash: actionHash
+    });
+    const { fetchImpl } = singleRoute(JWKS_URI, () => jwks(portalPublicJwk));
+    const valid = await signProof(portal.privateKey as SigningKey, {
+      aud: "did:web:auth-dev.test:agent1",
+      jti: "proof-1",
+      exp: now + 300,
+      action_context_version: 1,
+      action_context_hash: actionHash
+    });
+    expect((await verify(valid, v1Expected, fetchImpl)).action_context_hash).toBe(actionHash);
+
+    resetProofVerificationCaches();
+    const missingExpiry = await signProof(portal.privateKey as SigningKey, {
+      aud: "did:web:auth-dev.test:agent1",
+      jti: "proof-1",
+      action_context_version: 1,
+      action_context_hash: actionHash
+    });
+    await expect(verify(missingExpiry, v1Expected, fetchImpl)).rejects.toThrow();
+
+    resetProofVerificationCaches();
+    await expect(
+      verify(valid, { ...v1Expected, action_context_hash: "b".repeat(64) }, fetchImpl)
+    ).rejects.toThrow(/action_context_hash mismatch/);
   });
 
   it("rejects an issuer mismatch even when signed with the real key", async () => {

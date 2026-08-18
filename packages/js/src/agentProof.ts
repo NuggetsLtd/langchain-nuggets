@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { SignJWT, importJWK, importPKCS8 } from "jose";
+import { randomUUID } from "node:crypto";
 import type { JWK } from "jose";
 import type { PrivateKeyInput, SigningKey } from "./types.js";
 
@@ -58,6 +59,30 @@ export async function signAgentProof(
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({ agent_id: agentId, nonce })
     .setProtectedHeader({ alg: "RS256" })
+    .setIssuedAt(now)
+    .setExpirationTime(now + PROOF_TTL_SECONDS)
+    .sign(privateKey);
+}
+
+export async function signAgentProofV1(
+  privateKey: SigningKey,
+  input: {
+    agentId: string;
+    nonce: string;
+    audience: string;
+    actionContextHash: string;
+  }
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({
+    agent_id: input.agentId,
+    nonce: input.nonce,
+    action_context_version: 1,
+    action_context_hash: input.actionContextHash
+  })
+    .setProtectedHeader({ alg: "RS256" })
+    .setAudience(input.audience)
+    .setJti(randomUUID())
     .setIssuedAt(now)
     .setExpirationTime(now + PROOF_TTL_SECONDS)
     .sign(privateKey);

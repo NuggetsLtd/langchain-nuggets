@@ -142,7 +142,19 @@ async function verifyCore(
   for (const jwk of candidates) {
     try {
       const key = await importJWK(jwk, "RS256");
-      const verified = await jwtVerify(signature, key, { algorithms: ["RS256"] });
+      const v1 = expected.action_context_version === 1;
+      const verified = await jwtVerify(signature, key, {
+        algorithms: ["RS256"],
+        issuer,
+        ...(typeof expected.aud === "string" ? { audience: expected.aud } : {}),
+        ...(v1 ? { requiredClaims: ["iat", "exp", "jti", "aud"] } : {})
+      });
+      if (v1 &&
+        (typeof verified.payload.iat !== "number" ||
+          typeof verified.payload.exp !== "number" ||
+          verified.payload.exp <= verified.payload.iat)) {
+        throw new ProofVerificationError("proof has an invalid bounded lifetime");
+      }
       bind(verified.payload, expected);
       return verified.payload;
     } catch (exc) {
@@ -164,7 +176,15 @@ function candidateKeys(keys: JWK[], kid?: string): JWK[] {
 }
 
 function bind(claims: JWTPayload, expected: Record<string, unknown>): void {
-  for (const field of ["decision", "proof_id", "agent_id", "controller_id", "action_context_hash"]) {
+  for (const field of [
+    "decision",
+    "proof_id",
+    "agent_id",
+    "controller_id",
+    "aud",
+    "action_context_version",
+    "action_context_hash"
+  ]) {
     if (field in expected && claims[field] !== expected[field]) {
       throw new ProofVerificationError(
         `proof ${field} mismatch: proof=${String(claims[field])} expected=${String(expected[field])}`

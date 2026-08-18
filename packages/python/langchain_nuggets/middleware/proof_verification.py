@@ -200,7 +200,12 @@ def _unverified_iss(signature: str) -> str:
 
 
 def _verify_signature_against_keys(
-    signature: str, keys: List[Dict[str, Any]], kid: Optional[str]
+    signature: str,
+    keys: List[Dict[str, Any]],
+    kid: Optional[str],
+    *,
+    issuer: str,
+    expected: Dict[str, Any],
 ) -> Dict[str, Any]:
     candidates = _candidate_keys(keys, kid)
     if not candidates:
@@ -209,7 +214,31 @@ def _verify_signature_against_keys(
     for jwk in candidates:
         try:
             public_key = RSAAlgorithm.from_jwk(json.dumps(jwk))
-            return jwt.decode(signature, key=public_key, algorithms=["RS256"])
+            v1 = expected.get("action_context_version") == 1
+            options: Dict[str, Any] = {}
+            kwargs: Dict[str, Any] = {"issuer": issuer}
+            if isinstance(expected.get("aud"), str):
+                kwargs["audience"] = expected["aud"]
+            else:
+                options["verify_aud"] = False
+            if v1:
+                options["require"] = ["iat", "exp", "jti", "aud"]
+            claims = jwt.decode(
+                signature,
+                key=public_key,
+                algorithms=["RS256"],
+                options=options,
+                **kwargs,
+            )
+            if v1 and (
+                not isinstance(claims.get("iat"), (int, float))
+                or isinstance(claims.get("iat"), bool)
+                or not isinstance(claims.get("exp"), (int, float))
+                or isinstance(claims.get("exp"), bool)
+                or claims["exp"] <= claims["iat"]
+            ):
+                raise ProofVerificationError("proof has an invalid bounded lifetime")
+            return claims
         except Exception as exc:  # try the next published key
             last_err = exc
     raise ProofVerificationError(
@@ -226,7 +255,9 @@ def _verify_core(
         raise ProofVerificationError(f"proof issuer mismatch: proof={iss!r} expected={issuer!r}")
     # 2. Verify the signature against the discovered key set.
     header = _decode_header(signature)
-    claims = _verify_signature_against_keys(signature, keys, header.get("kid"))
+    claims = _verify_signature_against_keys(
+        signature, keys, header.get("kid"), issuer=issuer, expected=expected
+    )
     # 3. Bind to the request/response.
     _bind(claims, expected)
     return claims
@@ -308,7 +339,15 @@ def _bind(claims: Dict[str, Any], expected: Dict[str, Any]) -> None:
                 f"proof {field} mismatch: proof={claims.get(field)!r} expected={expected[field]!r}"
             )
 
-    for field in ("decision", "proof_id", "agent_id", "controller_id", "action_context_hash"):
+    for field in (
+        "decision",
+        "proof_id",
+        "agent_id",
+        "controller_id",
+        "aud",
+        "action_context_version",
+        "action_context_hash",
+    ):
         check(field)
 
     if "constraints_evaluated" in expected:

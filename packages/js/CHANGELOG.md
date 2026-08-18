@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Security
+
+- Agent proofs now sign a versioned RFC 8785 `action_context_hash`, the request nonce, discovered authority audience, `iat`/`exp`, and `jti`. Returned authority proofs must contain the same locally recomputed hash, version, audience, and bounded lifetime before a tool executes.
+- Added pinned `canonicalize@3.0.0` plus frozen partner#958 interoperability vectors shared with the Python SDK.
+
 ## [1.2.0]
 
 Released in lockstep with the Python package's 1.2.0. **No functional changes to this package** — the 1.2.0 work (LangGraph OIDC audience enforcement) is in the Python `langgraph` auth surface, which this JS package does not include. Version kept in step for parity.
