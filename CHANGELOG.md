@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.3.0]
+
 ### Security
 
 - **Authority requests and decisions are now bound to the exact action (issue #57).** Both SDKs compute the versioned `action_context_hash` using RFC 8785 JCS and domain-separated SHA-256 over the tool, target, parameters hash, optional intent/payment fields, agent, controller, and canonical delegation ID. The agent signs that hash with the request nonce, authority audience, `iat`/`exp`, and `jti`; the SDK independently recomputes and requires the same hash in the authority's signed decision before a tool can run.

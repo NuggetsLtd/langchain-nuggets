@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.3.0]
+
 ### Security
 
 - Agent proofs now sign a versioned RFC 8785 `action_context_hash`, the request nonce, discovered authority audience, `iat`/`exp`, and `jti`. Returned authority proofs must contain the same locally recomputed hash, version, audience, and bounded lifetime before a tool executes.
