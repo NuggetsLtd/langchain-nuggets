@@ -49,6 +49,24 @@ Exits 0 when the backend returns `ALLOW` and a proof artifact is emitted. See [`
 - Describe the change, the motivation, and any breaking implications.
 - **Security controls must not be weakened.** Changes that relax authority enforcement, proof verification, or fail-closed behaviour will not be accepted without an explicit, reviewed rationale.
 
+## npm releases
+
+The `Release npm` workflow publishes through npm trusted publishing. The npm
+package configuration is pinned to:
+
+- provider: GitHub Actions;
+- organisation: `NuggetsLtd`;
+- repository: `langchain-nuggets`;
+- workflow: `release-npm.yml`;
+- environment: `npm`;
+- allowed action: `npm publish`.
+
+Normal releases push an immutable `js-vX.Y.Z` tag whose version exactly matches
+`packages/js/package.json`. A failed publish may be retried with the workflow's
+`release_ref` input; the job resolves and pins that existing tag to one commit
+before the protected `npm` environment approval. Never delete or move a release
+tag to retry publication.
+
 ## Code style
 
 - Type hints required on the public surface. `from __future__ import annotations` at the top of new modules.
