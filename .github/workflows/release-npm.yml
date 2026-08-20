@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - "js-v*"
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: "Existing immutable js-vX.Y.Z tag to publish"
+        required: true
+        type: string
+
+env:
+  RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref_name }}
 
 permissions:
   contents: read
@@ -12,16 +21,42 @@ jobs:
   build:
     name: Build + validate
     runs-on: ubuntu-latest
+    outputs:
+      release_sha: ${{ steps.release.outputs.sha }}
     defaults:
       run:
         working-directory: packages/js
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_REF }}
+      - name: Verify immutable release ref
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_REF" =~ ^js-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release_ref must be an existing js-vX.Y.Z tag" >&2
+            exit 1
+          fi
+          tag_sha=$(git rev-list -n 1 "refs/tags/$RELEASE_REF")
+          head_sha=$(git rev-parse HEAD)
+          if [[ "$tag_sha" != "$head_sha" ]]; then
+            echo "checked-out commit does not match $RELEASE_REF" >&2
+            exit 1
+          fi
+          package_version=$(node -p "require('./package.json').version")
+          if [[ "$RELEASE_REF" != "js-v$package_version" ]]; then
+            echo "tag $RELEASE_REF does not match package version $package_version" >&2
+            exit 1
+          fi
+          echo "sha=$head_sha" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: packages/js/package-lock.json
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
       - name: Install
         run: npm ci
       - name: Typecheck
@@ -46,17 +81,18 @@ jobs:
         working-directory: packages/js
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build.outputs.release_sha }}
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-          cache: npm
-          cache-dependency-path: packages/js/package-lock.json
+          package-manager-cache: false
+      - name: Pin OIDC-capable npm CLI
+        run: npm install --global npm@11.12.1
       - name: Install
         run: npm ci
       - name: Build
         run: npm run build
-      - name: Publish (public, with provenance)
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish through npm trusted publishing
+        run: npm publish --access public
