@@ -9,6 +9,7 @@ and client_id claims against its registered JWKS.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SCOPE = "authority.evaluate"
 _DEFAULT_ASSERTION_TTL_SECONDS = 300
 _REFRESH_BEFORE_EXPIRY_SECONDS = 30
+_DEFAULT_MAX_TOKEN_ATTEMPTS = 3
+_DEFAULT_TOKEN_RETRY_DELAY_SECONDS = 0.3
 
 
 class OidcClientCredentialsClient:
@@ -46,6 +49,8 @@ class OidcClientCredentialsClient:
         resource: Optional[str] = None,
         verify_ssl: bool = True,
         ca_cert: Optional[str] = None,
+        max_token_attempts: int = _DEFAULT_MAX_TOKEN_ATTEMPTS,
+        retry_delay_seconds: float = _DEFAULT_TOKEN_RETRY_DELAY_SECONDS,
     ) -> None:
         self._issuer_url = issuer_url.rstrip("/")
         self._token_endpoint = f"{self._issuer_url}/token"
@@ -57,6 +62,8 @@ class OidcClientCredentialsClient:
         # names the authority audience as a resource; without it the bearer
         # the authority endpoint receives is opaque and fails verification.
         self._resource = resource
+        self._max_token_attempts = max(1, max_token_attempts)
+        self._retry_delay_seconds = max(0.0, retry_delay_seconds)
         self._token: Optional[Dict[str, Any]] = None
         self._sync_client: Optional[httpx.Client] = None
         self._async_client: Optional[httpx.AsyncClient] = None
@@ -132,15 +139,43 @@ class OidcClientCredentialsClient:
         if self._token_is_fresh():
             return self._token["access_token"]  # type: ignore[index]
         client = self._get_sync_client()
-        response = client.post(self._token_endpoint, data=self._token_request_form())
-        return self._handle_token_response(response)
+        # Retry transient failures (network errors, 5xx) so a one-off blip at
+        # the token endpoint does not surface as a hard error before the agent
+        # can request an authority decision. 4xx (auth/config) and malformed
+        # responses are not retried, so the caller still fails closed.
+        last_error: Optional[Exception] = None
+        for attempt in range(1, self._max_token_attempts + 1):
+            try:
+                response = client.post(
+                    self._token_endpoint, data=self._token_request_form()
+                )
+                return self._handle_token_response(response)
+            except (OidcTokenError, httpx.RequestError) as exc:
+                last_error = exc
+                if attempt >= self._max_token_attempts or not _is_transient_token_error(exc):
+                    raise
+                time.sleep(self._retry_delay_seconds * attempt)
+        assert last_error is not None  # loop always returns or raises
+        raise last_error
 
     async def aget_access_token(self) -> str:
         if self._token_is_fresh():
             return self._token["access_token"]  # type: ignore[index]
         client = await self._get_async_client()
-        response = await client.post(self._token_endpoint, data=self._token_request_form())
-        return self._handle_token_response(response)
+        last_error: Optional[Exception] = None
+        for attempt in range(1, self._max_token_attempts + 1):
+            try:
+                response = await client.post(
+                    self._token_endpoint, data=self._token_request_form()
+                )
+                return self._handle_token_response(response)
+            except (OidcTokenError, httpx.RequestError) as exc:
+                last_error = exc
+                if attempt >= self._max_token_attempts or not _is_transient_token_error(exc):
+                    raise
+                await asyncio.sleep(self._retry_delay_seconds * attempt)
+        assert last_error is not None  # loop always returns or raises
+        raise last_error
 
     def post(
         self,
@@ -188,6 +223,18 @@ class OidcTokenError(Exception):
 
 
 _RESERVED_HEADERS = frozenset({"authorization", "content-type"})
+
+
+def _is_transient_token_error(exc: Exception) -> bool:
+    """Whether a token request failure is worth retrying.
+
+    5xx responses and network/timeout errors are transient. A 4xx (auth or
+    config) or a malformed 2xx response (an OidcTokenError with status_code 200)
+    is not — retrying will not change the outcome.
+    """
+    if isinstance(exc, OidcTokenError):
+        return exc.status_code >= 500
+    return isinstance(exc, httpx.RequestError)
 
 
 def _decode_token_endpoint_response(response: httpx.Response) -> Dict[str, Any]:
