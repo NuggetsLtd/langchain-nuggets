@@ -55,8 +55,8 @@ export class OidcClientCredentialsClient {
     this.scope = input.scope ?? "authority.evaluate";
     this.resource = input.resource;
     this.fetchImpl = input.fetchImpl ?? fetch;
-    this.maxTokenAttempts = Math.max(1, input.maxTokenAttempts ?? DEFAULT_MAX_TOKEN_ATTEMPTS);
-    this.retryDelayMs = Math.max(0, input.retryDelayMs ?? DEFAULT_TOKEN_RETRY_DELAY_MS);
+    this.maxTokenAttempts = normalizeAttempts(input.maxTokenAttempts);
+    this.retryDelayMs = normalizeDelayMs(input.retryDelayMs);
   }
 
   async buildClientAssertion(): Promise<string> {
@@ -119,11 +119,20 @@ export class OidcClientCredentialsClient {
       form.set("resource", this.resource);
     }
 
-    const response = await this.fetchImpl(this.tokenEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form
-    });
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form
+      });
+    } catch {
+      // A rejected fetch is a network/transport failure. Surface it as a
+      // transient OidcTokenError (statusCode 0) so the retry loop can retry it.
+      // Errors thrown earlier (e.g. signing the assertion) are not caught here,
+      // so they propagate and are not retried.
+      throw new OidcTokenError("token endpoint request failed", 0);
+    }
     const body = await decodeTokenEndpointResponse(response);
     const accessToken = body.access_token;
     if (typeof accessToken !== "string" || accessToken.length === 0) {
@@ -153,14 +162,29 @@ export class OidcClientCredentialsClient {
 }
 
 function isTransientTokenError(error: unknown): boolean {
-  // 5xx responses are transient and worth a retry. A 4xx (auth/config) or a
-  // malformed 2xx response (an OidcTokenError with statusCode 200) is not —
-  // retrying will not change the outcome. Anything that is not an
-  // OidcTokenError is a network/fetch failure, which is transient.
+  // Retry only transient failures: a network/transport error (surfaced as an
+  // OidcTokenError with statusCode 0) or a 5xx from the provider. A 4xx
+  // (auth/config) or a malformed response (statusCode 200) is terminal, and
+  // anything that is not an OidcTokenError (e.g. a signing error) is not
+  // retried.
   if (error instanceof OidcTokenError) {
-    return error.statusCode >= 500;
+    return error.statusCode === 0 || error.statusCode >= 500;
   }
-  return true;
+  return false;
+}
+
+function normalizeAttempts(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return DEFAULT_MAX_TOKEN_ATTEMPTS;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
+function normalizeDelayMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return DEFAULT_TOKEN_RETRY_DELAY_MS;
+  }
+  return Math.max(0, value);
 }
 
 function delay(ms: number): Promise<void> {
@@ -187,8 +211,15 @@ async function decodeTokenEndpointResponse(response: Response): Promise<Record<s
     );
   }
   try {
-    return (await response.json()) as Record<string, unknown>;
+    const parsed = await response.json();
+    if (typeof parsed !== "object" || parsed === null) {
+      throw new OidcTokenError("OIDC token endpoint returned a malformed response", response.status);
+    }
+    return parsed as Record<string, unknown>;
   } catch (exc) {
+    if (exc instanceof OidcTokenError) {
+      throw exc;
+    }
     throw new OidcTokenError("OIDC token endpoint returned a non-JSON response", response.status);
   }
 }

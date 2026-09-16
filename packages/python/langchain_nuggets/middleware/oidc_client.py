@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 import uuid
 from typing import Any, Dict, Optional, Union
@@ -62,8 +63,8 @@ class OidcClientCredentialsClient:
         # names the authority audience as a resource; without it the bearer
         # the authority endpoint receives is opaque and fails verification.
         self._resource = resource
-        self._max_token_attempts = max(1, max_token_attempts)
-        self._retry_delay_seconds = max(0.0, retry_delay_seconds)
+        self._max_token_attempts = _normalize_attempts(max_token_attempts)
+        self._retry_delay_seconds = _normalize_delay_seconds(retry_delay_seconds)
         self._token: Optional[Dict[str, Any]] = None
         self._sync_client: Optional[httpx.Client] = None
         self._async_client: Optional[httpx.AsyncClient] = None
@@ -237,6 +238,24 @@ def _is_transient_token_error(exc: Exception) -> bool:
     return isinstance(exc, httpx.RequestError)
 
 
+def _normalize_attempts(value: Any) -> int:
+    try:
+        if not math.isfinite(value):
+            return _DEFAULT_MAX_TOKEN_ATTEMPTS
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return _DEFAULT_MAX_TOKEN_ATTEMPTS
+
+
+def _normalize_delay_seconds(value: Any) -> float:
+    try:
+        if not math.isfinite(value):
+            return _DEFAULT_TOKEN_RETRY_DELAY_SECONDS
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return _DEFAULT_TOKEN_RETRY_DELAY_SECONDS
+
+
 def _decode_token_endpoint_response(response: httpx.Response) -> Dict[str, Any]:
     """Decode a token endpoint response, raising OidcTokenError on any
     upstream issue. Never includes raw response body in the surfaced
@@ -260,7 +279,7 @@ def _decode_token_endpoint_response(response: httpx.Response) -> Dict[str, Any]:
             response.status_code,
         )
     try:
-        return response.json()
+        body = response.json()
     except Exception as exc:
         logger.warning(
             "OIDC token exchange returned non-JSON 2xx response: %s",
@@ -270,6 +289,12 @@ def _decode_token_endpoint_response(response: httpx.Response) -> Dict[str, Any]:
             "OIDC token endpoint returned a non-JSON response",
             response.status_code,
         ) from exc
+    if not isinstance(body, dict):
+        raise OidcTokenError(
+            "OIDC token endpoint returned a malformed response",
+            response.status_code,
+        )
+    return body
 
 
 def _merge_headers(token: str, extra: Optional[Dict[str, str]]) -> Dict[str, str]:

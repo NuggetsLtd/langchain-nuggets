@@ -222,6 +222,15 @@ class TestTokenRetries:
         assert route.call_count == 3
 
     @respx.mock
+    def test_does_not_retry_malformed_null_body(self, rsa_keypair):
+        route = respx.post("https://auth.test/token").mock(
+            return_value=Response(200, json=None)
+        )
+        with pytest.raises(OidcTokenError):
+            self._client(rsa_keypair).get_access_token()
+        assert route.call_count == 1
+
+    @respx.mock
     async def test_async_retries_5xx_then_succeeds(self, rsa_keypair):
         route = respx.post("https://auth.test/token").mock(
             side_effect=[

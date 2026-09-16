@@ -191,6 +191,26 @@ describe("token exchange retries", () => {
     ).rejects.toMatchObject({ statusCode: 503 });
     expect(calls).toHaveLength(3);
   });
+
+  it("falls back to the default attempts on a non-finite option", async () => {
+    const { fetchImpl, calls } = mockFetch([tokenOk]);
+    const token = await makeClient(fetchImpl, {
+      maxTokenAttempts: Number.NaN,
+      retryDelayMs: 0
+    }).getAccessToken();
+    expect(token).toBe("tok-1");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not retry a malformed (null) 200 body", async () => {
+    const { fetchImpl, calls } = mockFetch([
+      () => new Response("null", { status: 200, headers: { "Content-Type": "application/json" } })
+    ]);
+    await expect(
+      makeClient(fetchImpl, { retryDelayMs: 0 }).getAccessToken()
+    ).rejects.toBeInstanceOf(OidcTokenError);
+    expect(calls).toHaveLength(1);
+  });
 });
 
 describe("authenticated post", () => {
