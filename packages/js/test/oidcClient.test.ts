@@ -30,13 +30,18 @@ const tokenOk = (token = "tok-1") =>
     headers: { "Content-Type": "application/json" }
   });
 
-function makeClient(fetchImpl: typeof fetch, extra?: { resource?: string }) {
+function makeClient(
+  fetchImpl: typeof fetch,
+  extra?: { resource?: string; maxTokenAttempts?: number; retryDelayMs?: number }
+) {
   return new OidcClientCredentialsClient({
     issuerUrl: "https://auth.test",
     clientId: "did:web:auth.test:abc",
     privateKey,
     fetchImpl,
-    resource: extra?.resource
+    resource: extra?.resource,
+    maxTokenAttempts: extra?.maxTokenAttempts,
+    retryDelayMs: extra?.retryDelayMs
   });
 }
 
@@ -143,6 +148,48 @@ describe("token exchange", () => {
       () => new Response(JSON.stringify({ expires_in: 3600 }), { status: 200 })
     ]);
     await expect(makeClient(fetchImpl).getAccessToken()).rejects.toThrow(/access_token/);
+  });
+});
+
+describe("token exchange retries", () => {
+  const serverError = () =>
+    new Response(JSON.stringify({ error: "temporarily_unavailable" }), { status: 503 });
+
+  it("retries a 5xx and returns the token on a later attempt", async () => {
+    const { fetchImpl, calls } = mockFetch([serverError, () => tokenOk("tok-2")]);
+    const token = await makeClient(fetchImpl, { retryDelayMs: 0 }).getAccessToken();
+    expect(token).toBe("tok-2");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("retries a network error and returns the token on a later attempt", async () => {
+    const { fetchImpl, calls } = mockFetch([
+      () => {
+        throw new TypeError("network down");
+      },
+      () => tokenOk("tok-2")
+    ]);
+    const token = await makeClient(fetchImpl, { retryDelayMs: 0 }).getAccessToken();
+    expect(token).toBe("tok-2");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("does not retry a 4xx", async () => {
+    const { fetchImpl, calls } = mockFetch([
+      () => new Response(JSON.stringify({ error: "invalid_client" }), { status: 401 })
+    ]);
+    await expect(
+      makeClient(fetchImpl, { retryDelayMs: 0 }).getAccessToken()
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("gives up after the configured number of attempts", async () => {
+    const { fetchImpl, calls } = mockFetch([serverError]);
+    await expect(
+      makeClient(fetchImpl, { retryDelayMs: 0, maxTokenAttempts: 3 }).getAccessToken()
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(calls).toHaveLength(3);
   });
 });
 
