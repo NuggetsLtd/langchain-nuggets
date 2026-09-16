@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [1.4.0]
+
+### Added
+
+- Bounded retry for transient OIDC token-endpoint failures in both SDKs. The token request now retries network errors and 5xx responses (default 3 attempts with a short backoff) instead of surfacing a one-off blip as a hard error before an authority decision can be requested. Configurable via `maxTokenAttempts` / `retryDelayMs` (TypeScript) and `max_token_attempts` / `retry_delay_seconds` (Python). 4xx (auth/config) and malformed responses are not retried, so the caller still fails closed if the endpoint stays unreachable.
+
 ## [1.3.0]
 
 ### Security
