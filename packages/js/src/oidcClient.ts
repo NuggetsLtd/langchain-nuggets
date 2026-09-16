@@ -4,6 +4,8 @@ import type { SigningKey } from "./types.js";
 
 const DEFAULT_ASSERTION_TTL_SECONDS = 300;
 const REFRESH_BEFORE_EXPIRY_SECONDS = 30;
+const DEFAULT_MAX_TOKEN_ATTEMPTS = 3;
+const DEFAULT_TOKEN_RETRY_DELAY_MS = 300;
 
 interface CachedToken {
   accessToken: string;
@@ -27,6 +29,10 @@ export interface OidcClientCredentialsClientInput {
   scope?: string;
   resource?: string;
   fetchImpl?: typeof fetch;
+  /** Attempts for a token request before giving up. Default 3. */
+  maxTokenAttempts?: number;
+  /** Base backoff between token retries, multiplied by the attempt number. Default 300ms. */
+  retryDelayMs?: number;
 }
 
 export class OidcClientCredentialsClient {
@@ -38,6 +44,8 @@ export class OidcClientCredentialsClient {
   private resource?: string;
   private token?: CachedToken;
   private fetchImpl: typeof fetch;
+  private maxTokenAttempts: number;
+  private retryDelayMs: number;
 
   constructor(input: OidcClientCredentialsClientInput) {
     this.issuerUrl = input.issuerUrl.replace(/\/+$/, "");
@@ -47,6 +55,8 @@ export class OidcClientCredentialsClient {
     this.scope = input.scope ?? "authority.evaluate";
     this.resource = input.resource;
     this.fetchImpl = input.fetchImpl ?? fetch;
+    this.maxTokenAttempts = normalizeAttempts(input.maxTokenAttempts);
+    this.retryDelayMs = normalizeDelayMs(input.retryDelayMs);
   }
 
   async buildClientAssertion(): Promise<string> {
@@ -74,6 +84,31 @@ export class OidcClientCredentialsClient {
       return this.token!.accessToken;
     }
 
+    // Retry transient failures (network errors, 5xx) so a one-off blip at the
+    // token endpoint does not surface as a hard error before the agent can even
+    // request an authority decision. A 4xx (auth/config) or malformed response
+    // is not retried. If the endpoint stays unreachable we still throw, so the
+    // caller fails closed.
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.maxTokenAttempts; attempt++) {
+      try {
+        return await this.requestToken();
+      } catch (error) {
+        lastError = error;
+        if (attempt >= this.maxTokenAttempts || !isTransientTokenError(error)) {
+          throw error;
+        }
+        await delay(this.retryDelayMs * attempt);
+      }
+    }
+    // The loop always returns or throws; this only satisfies the type checker.
+    throw lastError instanceof Error
+      ? lastError
+      : new OidcTokenError("OIDC token exchange failed", 0);
+  }
+
+  private async requestToken(): Promise<string> {
+    // A fresh assertion (and jti) per attempt keeps replay protection happy.
     const form = new URLSearchParams({
       grant_type: "client_credentials",
       client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
@@ -84,11 +119,20 @@ export class OidcClientCredentialsClient {
       form.set("resource", this.resource);
     }
 
-    const response = await this.fetchImpl(this.tokenEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form
-    });
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form
+      });
+    } catch {
+      // A rejected fetch is a network/transport failure. Surface it as a
+      // transient OidcTokenError (statusCode 0) so the retry loop can retry it.
+      // Errors thrown earlier (e.g. signing the assertion) are not caught here,
+      // so they propagate and are not retried.
+      throw new OidcTokenError("token endpoint request failed", 0);
+    }
     const body = await decodeTokenEndpointResponse(response);
     const accessToken = body.access_token;
     if (typeof accessToken !== "string" || accessToken.length === 0) {
@@ -117,6 +161,39 @@ export class OidcClientCredentialsClient {
   }
 }
 
+function isTransientTokenError(error: unknown): boolean {
+  // Retry only transient failures: a network/transport error (surfaced as an
+  // OidcTokenError with statusCode 0) or a 5xx from the provider. A 4xx
+  // (auth/config) or a malformed response (statusCode 200) is terminal, and
+  // anything that is not an OidcTokenError (e.g. a signing error) is not
+  // retried.
+  if (error instanceof OidcTokenError) {
+    return error.statusCode === 0 || error.statusCode >= 500;
+  }
+  return false;
+}
+
+function normalizeAttempts(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return DEFAULT_MAX_TOKEN_ATTEMPTS;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
+function normalizeDelayMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return DEFAULT_TOKEN_RETRY_DELAY_MS;
+  }
+  return Math.max(0, value);
+}
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function decodeTokenEndpointResponse(response: Response): Promise<Record<string, unknown>> {
   if (response.status >= 400) {
     let errorCode = "unknown_error";
@@ -134,8 +211,15 @@ async function decodeTokenEndpointResponse(response: Response): Promise<Record<s
     );
   }
   try {
-    return (await response.json()) as Record<string, unknown>;
+    const parsed = await response.json();
+    if (typeof parsed !== "object" || parsed === null) {
+      throw new OidcTokenError("OIDC token endpoint returned a malformed response", response.status);
+    }
+    return parsed as Record<string, unknown>;
   } catch (exc) {
+    if (exc instanceof OidcTokenError) {
+      throw exc;
+    }
     throw new OidcTokenError("OIDC token endpoint returned a non-JSON response", response.status);
   }
 }

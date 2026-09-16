@@ -1,6 +1,7 @@
 """Tests for OidcClientCredentialsClient."""
 import time
 
+import httpx
 import jwt
 import pytest
 import respx
@@ -164,6 +165,82 @@ class TestTokenExchange:
         with pytest.raises(OidcTokenError) as exc_info:
             client.get_access_token()
         assert "access_token" in str(exc_info.value)
+
+
+class TestTokenRetries:
+    def _client(self, rsa_keypair, **kwargs):
+        return OidcClientCredentialsClient(
+            issuer_url="https://auth.test",
+            client_id="did:web:auth.test:abc",
+            private_key_pem=rsa_keypair["private_pem"],
+            retry_delay_seconds=0,
+            **kwargs,
+        )
+
+    @respx.mock
+    def test_retries_5xx_then_succeeds(self, rsa_keypair):
+        route = respx.post("https://auth.test/token").mock(
+            side_effect=[
+                Response(503, json={"error": "temporarily_unavailable"}),
+                Response(200, json={"access_token": "tok-2", "expires_in": 3600}),
+            ]
+        )
+        token = self._client(rsa_keypair).get_access_token()
+        assert token == "tok-2"
+        assert route.call_count == 2
+
+    @respx.mock
+    def test_retries_network_error_then_succeeds(self, rsa_keypair):
+        route = respx.post("https://auth.test/token").mock(
+            side_effect=[
+                httpx.ConnectError("network down"),
+                Response(200, json={"access_token": "tok-2", "expires_in": 3600}),
+            ]
+        )
+        token = self._client(rsa_keypair).get_access_token()
+        assert token == "tok-2"
+        assert route.call_count == 2
+
+    @respx.mock
+    def test_does_not_retry_4xx(self, rsa_keypair):
+        route = respx.post("https://auth.test/token").mock(
+            return_value=Response(401, json={"error": "invalid_client"})
+        )
+        with pytest.raises(OidcTokenError) as exc_info:
+            self._client(rsa_keypair).get_access_token()
+        assert exc_info.value.status_code == 401
+        assert route.call_count == 1
+
+    @respx.mock
+    def test_gives_up_after_configured_attempts(self, rsa_keypair):
+        route = respx.post("https://auth.test/token").mock(
+            return_value=Response(503, json={"error": "temporarily_unavailable"})
+        )
+        with pytest.raises(OidcTokenError) as exc_info:
+            self._client(rsa_keypair, max_token_attempts=3).get_access_token()
+        assert exc_info.value.status_code == 503
+        assert route.call_count == 3
+
+    @respx.mock
+    def test_does_not_retry_malformed_null_body(self, rsa_keypair):
+        route = respx.post("https://auth.test/token").mock(
+            return_value=Response(200, json=None)
+        )
+        with pytest.raises(OidcTokenError):
+            self._client(rsa_keypair).get_access_token()
+        assert route.call_count == 1
+
+    @respx.mock
+    async def test_async_retries_5xx_then_succeeds(self, rsa_keypair):
+        route = respx.post("https://auth.test/token").mock(
+            side_effect=[
+                Response(503, json={"error": "temporarily_unavailable"}),
+                Response(200, json={"access_token": "tok-2", "expires_in": 3600}),
+            ]
+        )
+        token = await self._client(rsa_keypair).aget_access_token()
+        assert token == "tok-2"
+        assert route.call_count == 2
 
 
 class TestAuthenticatedPost:
